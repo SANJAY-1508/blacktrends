@@ -25,7 +25,7 @@ if ($action === 'listBilling') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
         "SELECT `id`, `billing_id`, `billing_date`, `member_no`, `name`, `phone`, 
-                `productandservice_details`, `subtotal`, `discount`, `total`, 
+                `productandservice_details`, `subtotal`, `discount`, `discount_type`, `total`, 
                 `last_visit_date`, `total_visit_count`, `total_spending`, `membership`,
                 `create_at`, `delete_at`, `created_by_id`, `updated_by_id`, `delete_by_id`
          FROM `billing`
@@ -57,6 +57,7 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     $productandservice_details = $obj->productandservice_details ?? '';
     $subtotal = floatval($obj->subtotal ?? 0);
     $discount = floatval($obj->discount ?? 0);
+    $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
     $last_visit_date = $obj->last_visit_date ?? $billing_date;
     $total_visit_count = intval($obj->total_visit_count ?? 0);
@@ -93,12 +94,12 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
 
     $stmtIns = $conn->prepare(
         "INSERT INTO billing (billing_date, member_no, name, phone, productandservice_details, 
-         subtotal, discount, total, last_visit_date, total_visit_count, total_spending, 
+         subtotal, discount, discount_type, total, last_visit_date, total_visit_count, total_spending, 
          membership, create_at, delete_at, created_by_id, updated_by_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
     );
     $stmtIns->bind_param(
-        "sssssdddsidsii",
+        "sssssdssdsidsss",
         $billing_date,
         $member_no,
         $name,
@@ -106,6 +107,7 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         $productandservice_details,
         $subtotal,
         $discount,
+        $discount_type,
         $total,
         $last_visit_date,
         $total_visit_count,
@@ -139,6 +141,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     $productandservice_details = $obj->productandservice_details ?? '';
     $subtotal = floatval($obj->subtotal ?? 0);
     $discount = floatval($obj->discount ?? 0);
+    $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
     $last_visit_date = $obj->last_visit_date ?? $billing_date;
     $total_visit_count = intval($obj->total_visit_count ?? 0);
@@ -181,13 +184,13 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
 
     $upd = $conn->prepare(
         "UPDATE billing SET billing_date = ?, member_no = ?, name = ?, phone = ?, 
-         productandservice_details = ?, subtotal = ?, discount = ?, total = ?, 
+         productandservice_details = ?, subtotal = ?, discount = ?, discount_type = ?, total = ?, 
          last_visit_date = ?, total_visit_count = ?, total_spending = ?, membership = ?, 
          updated_by_id = ?
          WHERE billing_id = ?"
     );
     $upd->bind_param(
-        "sssssdddsidsis",
+        "sssssdssdsidsss",
         $billing_date,
         $member_no,
         $name,
@@ -195,6 +198,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         $productandservice_details,
         $subtotal,
         $discount,
+        $discount_type,
         $total,
         $last_visit_date,
         $total_visit_count,
