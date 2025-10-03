@@ -31,3 +31,9 @@ function uniqueID($prefix_name, $auto_increment_id)
     $encryptId = $prefix_name . "_" . $timestamp . "_" . $auto_increment_id;
     return md5($encryptId);
 }
+
+// Function to generate unique membership_no
+function generateMembershipNo($insertId)
+{
+    return "Member_" . sprintf("%03d", $insertId);
+}

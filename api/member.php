@@ -24,7 +24,7 @@ $action = $obj->action ?? 'listMember';
 if ($action === 'listMember') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `member_id`, `name`, `phone`, `gold_membership`,
+        "SELECT `id`, `member_id`, `membership_no`, `name`, `phone`, `gold_membership`,
                 `create_at`, `delete_at`
          FROM `member`
          WHERE `delete_at` = 0
@@ -84,8 +84,10 @@ elseif ($action === 'addmember' && isset($obj->name) && isset($obj->phone)) {
     if ($stmtIns->execute()) {
         $insertId   = $stmtIns->insert_id;
         $member_id  = uniqueID("member", $insertId);
-        $upd = $conn->prepare("UPDATE member SET member_id = ? WHERE id = ?");
-        $upd->bind_param("si", $member_id, $insertId);
+        $membership_no = generateMembershipNo($insertId);
+
+        $upd = $conn->prepare("UPDATE member SET member_id = ?, membership_no = ? WHERE id = ?");
+        $upd->bind_param("ssi", $member_id, $membership_no, $insertId);
         $upd->execute();
 
         $output = ["head" => ["code" => 200, "msg" => "Member created successfully"]];
