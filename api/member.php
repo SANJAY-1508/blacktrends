@@ -24,8 +24,7 @@ $action = $obj->action ?? 'listMember';
 if ($action === 'listMember') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `gold_membership`,
-                `create_at`, `delete_at`
+        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `gold_membership`,`last_visit_date`,`total_visit_count`, `total_spending`,`create_at`, `delete_at`
          FROM `member`
          WHERE `delete_at` = 0
            AND `name` LIKE ?
