@@ -95,16 +95,17 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     $memberRow = $memberResult->fetch_assoc();
     $member_id = $memberRow['id'];
 
-    // Update member stats
+    // Update member with received stats (frontend already updated)
     $updateMember = $conn->prepare(
-        "UPDATE member SET last_visit_date = ?, total_visit_count = total_visit_count + 1, 
-         total_spending = total_spending + ?, membership = ? 
+        "UPDATE member SET last_visit_date = ?, total_visit_count = ?, 
+         total_spending = ?, membership = ? 
          WHERE id = ? AND delete_at = 0"
     );
     $updateMember->bind_param(
-        "sdsi",
-        $billing_date,
-        $total,
+        "sidss",
+        $last_visit_date,
+        $total_visit_count,
+        $total_spending,
         $membership,
         $member_id
     );
@@ -113,12 +114,7 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         exit;
     }
 
-    // Now insert billing with updated stats and member_id
-    // Recalculate updated stats for billing (same as member)
-    $updated_total_visit_count = $total_visit_count + 1;
-    $updated_total_spending = $total_spending + $total;
-    $updated_last_visit_date = $billing_date;
-
+    // Insert billing with received values including stats
     $stmtIns = $conn->prepare(
         "INSERT INTO billing (billing_date, member_id, member_no, name, phone, productandservice_details, 
          subtotal, discount, discount_type, total, last_visit_date, total_visit_count, total_spending, 
@@ -137,9 +133,9 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         $discount,
         $discount_type,
         $total,
-        $updated_last_visit_date,
-        $updated_total_visit_count,
-        $updated_total_spending,
+        $last_visit_date,
+        $total_visit_count,
+        $total_spending,
         $membership,
         $created_by_id,
         $updated_by_id
