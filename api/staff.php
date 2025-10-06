@@ -24,7 +24,7 @@ $action = $obj->action ?? 'listStaff';
 if ($action === 'listStaff') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `staff_id`, `name`, `phone`, `address`,
+        "SELECT `id`, `staff_id`, `name`, `phone`, `address`,`total`,
                 `create_at`, `delete_at`
          FROM `staff`
          WHERE `delete_at` = 0
