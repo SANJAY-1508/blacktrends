@@ -24,7 +24,7 @@ $action = $obj->action ?? 'listBilling';
 if ($action === 'listBilling') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `billing_id`, `billing_date`, `member_no`, `name`, `phone`, 
+        "SELECT `id`, `billing_id`, `billing_date`, `member_id`, `member_no`, `name`, `phone`, 
                 `productandservice_details`, `subtotal`, `discount`, `discount_type`, `total`, 
                 `last_visit_date`, `total_visit_count`, `total_spending`, `membership`,
                 `create_at`, `delete_at`, `created_by_id`, `updated_by_id`, `delete_by_id`
@@ -83,24 +83,52 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         exit;
     }
 
-    // Check if member_no exists (optional validation)
+    // Check if member_no exists and get member_id
     $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_no = ? AND delete_at = 0");
     $memberCheck->bind_param("s", $member_no);
     $memberCheck->execute();
-    if ($memberCheck->get_result()->num_rows === 0) {
+    $memberResult = $memberCheck->get_result();
+    if ($memberResult->num_rows === 0) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Invalid member number"]]);
         exit;
     }
+    $memberRow = $memberResult->fetch_assoc();
+    $member_id = $memberRow['id'];
+
+    // Update member stats
+    $updateMember = $conn->prepare(
+        "UPDATE member SET last_visit_date = ?, total_visit_count = total_visit_count + 1, 
+         total_spending = total_spending + ?, membership = ? 
+         WHERE id = ? AND delete_at = 0"
+    );
+    $updateMember->bind_param(
+        "sdsi",
+        $billing_date,
+        $total,
+        $membership,
+        $member_id
+    );
+    if (!$updateMember->execute()) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Member update error: " . $updateMember->error]]);
+        exit;
+    }
+
+    // Now insert billing with updated stats and member_id
+    // Recalculate updated stats for billing (same as member)
+    $updated_total_visit_count = $total_visit_count + 1;
+    $updated_total_spending = $total_spending + $total;
+    $updated_last_visit_date = $billing_date;
 
     $stmtIns = $conn->prepare(
-        "INSERT INTO billing (billing_date, member_no, name, phone, productandservice_details, 
+        "INSERT INTO billing (billing_date, member_id, member_no, name, phone, productandservice_details, 
          subtotal, discount, discount_type, total, last_visit_date, total_visit_count, total_spending, 
          membership, create_at, delete_at, created_by_id, updated_by_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
     );
     $stmtIns->bind_param(
-        "sssssdssdsidsss",
+        "ssssssdssdsidsss",
         $billing_date,
+        $member_id,
         $member_no,
         $name,
         $phone,
@@ -109,9 +137,9 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         $discount,
         $discount_type,
         $total,
-        $last_visit_date,
-        $total_visit_count,
-        $total_spending,
+        $updated_last_visit_date,
+        $updated_total_visit_count,
+        $updated_total_spending,
         $membership,
         $created_by_id,
         $updated_by_id
@@ -162,36 +190,44 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         exit;
     }
 
-    // get numeric id
-    $idStmt = $conn->prepare("SELECT id FROM billing WHERE billing_id = ? AND delete_at = 0");
-    $idStmt->bind_param("s", $edit_billing_id);
-    $idStmt->execute();
-    $row = $idStmt->get_result()->fetch_assoc();
-    $dbId = $row['id'] ?? 0;
-    if (!$dbId) {
+    // Get existing billing to check if member_no changed
+    $existingStmt = $conn->prepare("SELECT member_id, member_no FROM billing WHERE billing_id = ? AND delete_at = 0");
+    $existingStmt->bind_param("s", $edit_billing_id);
+    $existingStmt->execute();
+    $existingRow = $existingStmt->get_result()->fetch_assoc();
+    if (!$existingRow) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Billing not found"]]);
         exit;
     }
+    $existing_member_id = $existingRow['member_id'];
+    $existing_member_no = $existingRow['member_no'];
 
-    // Check member_no exists
-    $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_no = ? AND delete_at = 0");
-    $memberCheck->bind_param("s", $member_no);
-    $memberCheck->execute();
-    if ($memberCheck->get_result()->num_rows === 0) {
-        echo json_encode(["head" => ["code" => 400, "msg" => "Invalid member number"]]);
-        exit;
+    $member_id = $existing_member_id;
+    if ($member_no !== $existing_member_no) {
+        // Member changed, get new member_id
+        $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_no = ? AND delete_at = 0");
+        $memberCheck->bind_param("s", $member_no);
+        $memberCheck->execute();
+        $newMemberResult = $memberCheck->get_result();
+        if ($newMemberResult->num_rows === 0) {
+            echo json_encode(["head" => ["code" => 400, "msg" => "Invalid new member number"]]);
+            exit;
+        }
+        $newMemberRow = $newMemberResult->fetch_assoc();
+        $member_id = $newMemberRow['id'];
     }
 
     $upd = $conn->prepare(
-        "UPDATE billing SET billing_date = ?, member_no = ?, name = ?, phone = ?, 
+        "UPDATE billing SET billing_date = ?, member_id = ?, member_no = ?, name = ?, phone = ?, 
          productandservice_details = ?, subtotal = ?, discount = ?, discount_type = ?, total = ?, 
          last_visit_date = ?, total_visit_count = ?, total_spending = ?, membership = ?, 
          updated_by_id = ?
          WHERE billing_id = ?"
     );
     $upd->bind_param(
-        "sssssdssdsidsss",
+        "ssssssdssdsidsss",
         $billing_date,
+        $member_id,
         $member_no,
         $name,
         $phone,
