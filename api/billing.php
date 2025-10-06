@@ -303,6 +303,171 @@ elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
     }
     echo json_encode($output);
     exit;
+}
+
+// ------------ 5. STAFF REPORT (date-wise grouped by staff) ---------------
+elseif ($action === 'staffReport') {
+    $from_date = $obj->from_date ?? '';
+    $to_date = $obj->to_date ?? '';
+    $search_text = trim($obj->search_text ?? '');
+
+    if (empty($from_date) || empty($to_date)) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "from_date and to_date are required"]]);
+        exit;
+    }
+
+    $search_cond = '';
+    $types = 'ss';
+    $params = [$from_date, $to_date];
+    if (!empty($search_text)) {
+        $like = '%' . $search_text . '%';
+        $search_cond = "AND JSON_EXTRACT(productandservice_details, '$[*].staff_name') LIKE ?";
+        $types .= 's';
+        $params[] = $like;
+    }
+
+    $sql = "SELECT billing_date, productandservice_details FROM billing WHERE delete_at = 0 AND billing_date BETWEEN ? AND ? $search_cond ORDER BY billing_date DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $billings = $result->fetch_all(MYSQLI_ASSOC);
+
+    // Collect unique staff_ids
+    $staff_ids = [];
+    foreach ($billings as $b) {
+        $details = json_decode($b['productandservice_details'], true);
+        if (is_array($details)) {
+            foreach ($details as $item) {
+                if (isset($item['staff_id'])) {
+                    $staff_ids[$item['staff_id']] = true;
+                }
+            }
+        }
+    }
+
+    // Fetch staff details
+    $staff_map = [];
+    if (!empty($staff_ids)) {
+        $id_list = array_keys($staff_ids);
+        $placeholders = str_repeat('?,', count($id_list) - 1) . '?';
+        $staff_sql = "SELECT staff_id, name, phone, address FROM staff WHERE staff_id IN ($placeholders) AND delete_at = 0";
+        $staff_stmt = $conn->prepare($staff_sql);
+        $staff_types = str_repeat('s', count($id_list));
+        $staff_stmt->bind_param($staff_types, ...$id_list);
+        $staff_stmt->execute();
+        $s_result = $staff_stmt->get_result();
+        while ($s_row = $s_result->fetch_assoc()) {
+            $staff_map[$s_row['staff_id']] = $s_row;
+        }
+    }
+
+    // Group and aggregate
+    $grouped = [];
+    foreach ($billings as $b) {
+        $report_date = date('Y-m-d', strtotime($b['billing_date']));
+        $details = json_decode($b['productandservice_details'], true);
+        if (is_array($details)) {
+            foreach ($details as $item) {
+                $sid = $item['staff_id'] ?? '';
+                if (empty($sid) || !isset($staff_map[$sid])) {
+                    continue;
+                }
+                $key = $report_date . '_' . $sid;
+                if (!isset($grouped[$key])) {
+                    $grouped[$key] = [
+                        'report_date' => $report_date,
+                        'name' => $staff_map[$sid]['name'],
+                        'phone' => $staff_map[$sid]['phone'],
+                        'address' => $staff_map[$sid]['address'],
+                        'total' => 0
+                    ];
+                }
+                $grouped[$key]['total'] += floatval($item['total'] ?? 0);
+            }
+        }
+    }
+
+    $staff_data = array_values($grouped);
+
+    // Sort: date DESC, name ASC
+    usort($staff_data, function ($a, $b) {
+        if ($a['report_date'] !== $b['report_date']) {
+            return strtotime($b['report_date']) <=> strtotime($a['report_date']);
+        }
+        return strcmp($a['name'], $b['name']);
+    });
+
+    $body = ["staff" => $staff_data];
+    $output = [
+        "head" => ["code" => 200, "msg" => !empty($staff_data) ? "Success" : "No data found"],
+        "body" => $body
+    ];
+    echo json_encode($output);
+    exit;
+}
+
+// ------------ 6. MEMBER REPORT (date-wise grouped by member) ---------------
+elseif ($action === 'memberReport') {
+    $from_date = $obj->from_date ?? '';
+    $to_date = $obj->to_date ?? '';
+    $search_text = trim($obj->search_text ?? '');
+
+    if (empty($from_date) || empty($to_date)) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "from_date and to_date are required"]]);
+        exit;
+    }
+
+    $search_cond = '';
+    $types = 'ss';
+    $params = [$from_date, $to_date];
+    if (!empty($search_text)) {
+        $like = '%' . $search_text . '%';
+        $search_cond = "AND (m.name LIKE ? OR m.phone LIKE ?)";
+        $types .= 'ss';
+        $params = array_merge($params, [$like, $like]);
+    }
+
+    $sql = "SELECT b.id, DATE(b.billing_date) as report_date, b.member_id, b.member_no, m.name, m.phone, b.membership, b.last_visit_date, b.total_visit_count, b.total_spending, b.total 
+            FROM billing b 
+            JOIN member m ON b.member_id = m.id 
+            WHERE b.delete_at = 0 AND m.delete_at = 0 
+            AND b.billing_date BETWEEN ? AND ? $search_cond 
+            ORDER BY b.billing_date DESC, b.member_id ASC, b.id DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $rows = $result->fetch_all(MYSQLI_ASSOC);
+
+    // Group and aggregate (latest stats from last billing of the day)
+    $grouped = [];
+    foreach ($rows as $row) {
+        $key = $row['report_date'] . '_' . $row['member_id'];
+        if (!isset($grouped[$key])) {
+            $grouped[$key] = $row;
+            $grouped[$key]['daily_total'] = 0;
+        }
+        $grouped[$key]['daily_total'] += floatval($row['total']);
+    }
+
+    $member_data = array_values($grouped);
+
+    // Sort: date DESC, name ASC
+    usort($member_data, function ($a, $b) {
+        if ($a['report_date'] !== $b['report_date']) {
+            return strtotime($b['report_date']) <=> strtotime($a['report_date']);
+        }
+        return strcmp($a['name'], $b['name']);
+    });
+
+    $body = ["member" => $member_data];
+    $output = [
+        "head" => ["code" => 200, "msg" => !empty($member_data) ? "Success" : "No data found"],
+        "body" => $body
+    ];
+    echo json_encode($output);
+    exit;
 } else {
     $output = ["head" => ["code" => 400, "msg" => "Invalid action / parameters"]];
 }
