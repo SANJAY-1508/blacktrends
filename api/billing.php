@@ -316,24 +316,14 @@ elseif ($action === 'staffReport') {
         exit;
     }
 
-    $search_cond = '';
-    $types = 'ss';
-    $params = [$from_date, $to_date];
-    if (!empty($search_text)) {
-        $like = '%' . $search_text . '%';
-        $search_cond = "AND JSON_EXTRACT(productandservice_details, '$[*].staff_name') LIKE ?";
-        $types .= 's';
-        $params[] = $like;
-    }
-
-    $sql = "SELECT billing_date, productandservice_details FROM billing WHERE delete_at = 0 AND billing_date BETWEEN ? AND ? $search_cond ORDER BY billing_date DESC";
+    $sql = "SELECT billing_date, productandservice_details FROM billing WHERE delete_at = 0 AND billing_date BETWEEN ? AND ? ORDER BY billing_date DESC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param($types, ...$params);
+    $stmt->bind_param("ss", $from_date, $to_date);
     $stmt->execute();
     $result = $stmt->get_result();
     $billings = $result->fetch_all(MYSQLI_ASSOC);
 
-    // Collect unique staff_ids
+    // Collect unique staff_ids from all billings
     $staff_ids = [];
     foreach ($billings as $b) {
         $details = json_decode($b['productandservice_details'], true);
@@ -362,13 +352,17 @@ elseif ($action === 'staffReport') {
         }
     }
 
-    // Group and aggregate
+    // Group and aggregate with search filter on staff_name
     $grouped = [];
     foreach ($billings as $b) {
         $report_date = date('Y-m-d', strtotime($b['billing_date']));
         $details = json_decode($b['productandservice_details'], true);
         if (is_array($details)) {
             foreach ($details as $item) {
+                $staff_name = $item['staff_name'] ?? '';
+                if (!empty($search_text) && stripos($staff_name, $search_text) === false) {
+                    continue;
+                }
                 $sid = $item['staff_id'] ?? '';
                 if (empty($sid) || !isset($staff_map[$sid])) {
                     continue;
