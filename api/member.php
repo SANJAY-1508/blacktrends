@@ -24,7 +24,7 @@ $action = $obj->action ?? 'listMember';
 if ($action === 'listMember') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `gold_membership`,`last_visit_date`,`total_visit_count`, `total_spending`,`create_at`, `delete_at`
+        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `membership`,`last_visit_date`,`total_visit_count`, `total_spending`,`create_at`, `delete_at`
          FROM `member`
          WHERE `delete_at` = 0
            AND `name` LIKE ?
@@ -48,7 +48,7 @@ if ($action === 'listMember') {
 elseif ($action === 'addmember' && isset($obj->name) && isset($obj->phone)) {
     $name   = trim($obj->name);
     $phone  = trim($obj->phone);
-    $gold   = $obj->gold_membership ?? 'No';
+    $gold   = $obj->membership ?? 'No';
 
     if (empty($name) || empty($phone)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
@@ -76,7 +76,7 @@ elseif ($action === 'addmember' && isset($obj->name) && isset($obj->phone)) {
     }
 
     $stmtIns = $conn->prepare(
-        "INSERT INTO member (name, phone, gold_membership, create_at, delete_at)
+        "INSERT INTO member (name, phone, membership, create_at, delete_at)
          VALUES (?, ?, ?, NOW(), 0)"
     );
     $stmtIns->bind_param("sss", $name, $phone, $gold);
@@ -102,7 +102,7 @@ elseif ($action === 'updatemember' && isset($obj->edit_member_id)) {
     $edit_member_id = $obj->edit_member_id;
     $name   = trim($obj->name);
     $phone  = trim($obj->phone);
-    $gold   = $obj->gold_membership ?? 'No';
+    $gold   = $obj->membership ?? 'No';
 
     if (empty($name) || empty($phone)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
@@ -137,7 +137,7 @@ elseif ($action === 'updatemember' && isset($obj->edit_member_id)) {
     }
 
     $upd = $conn->prepare(
-        "UPDATE member SET name = ?, phone = ?, gold_membership = ?
+        "UPDATE member SET name = ?, phone = ?, membership = ?
          WHERE member_id = ?"
     );
     $upd->bind_param("ssss", $name, $phone, $gold, $edit_member_id);
@@ -178,7 +178,7 @@ elseif ($action === 'toggleGold' && isset($obj->member_id) && isset($obj->make_g
         exit;
     }
 
-    $upd = $conn->prepare("UPDATE member SET gold_membership = ? WHERE member_id = ?");
+    $upd = $conn->prepare("UPDATE member SET membership = ? WHERE member_id = ?");
     $upd->bind_param("ss", $make_gold, $member_id);
     if ($upd->execute()) {
         $output = ["head" => ["code" => 200, "msg" => "Gold membership updated"]];
