@@ -147,6 +147,12 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         $upd->bind_param("si", $billing_id, $insertId);
         $upd->execute();
 
+        // Update staff totals after successful insert
+        if (!updateStaffTotals($conn, $productandservice_details, 'add')) {
+            // Optionally rollback, but for now, log error
+            error_log("Failed to update staff totals for new billing: " . $billing_id);
+        }
+
         $output = ["head" => ["code" => 200, "msg" => "Billing created successfully"]];
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Insert error: " . $stmtIns->error]];
@@ -186,8 +192,8 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         exit;
     }
 
-    // Get existing billing to check if member_no changed
-    $existingStmt = $conn->prepare("SELECT member_id, member_no FROM billing WHERE billing_id = ? AND delete_at = 0");
+    // Get existing billing to check if member_no changed and fetch old details
+    $existingStmt = $conn->prepare("SELECT member_id, member_no, productandservice_details FROM billing WHERE billing_id = ? AND delete_at = 0");
     $existingStmt->bind_param("s", $edit_billing_id);
     $existingStmt->execute();
     $existingRow = $existingStmt->get_result()->fetch_assoc();
@@ -197,6 +203,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     }
     $existing_member_id = $existingRow['member_id'];
     $existing_member_no = $existingRow['member_no'];
+    $old_details = $existingRow['productandservice_details'];
 
     $member_id = $existing_member_id;
     if ($member_no !== $existing_member_no) {
@@ -211,6 +218,11 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         }
         $newMemberRow = $newMemberResult->fetch_assoc();
         $member_id = $newMemberRow['id'];
+    }
+
+    // Subtract old staff totals
+    if (!updateStaffTotals($conn, $old_details, 'subtract')) {
+        error_log("Failed to subtract old staff totals for billing update: " . $edit_billing_id);
     }
 
     $upd = $conn->prepare(
@@ -240,8 +252,17 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         $edit_billing_id
     );
     if ($upd->execute()) {
+        // Add new staff totals
+        if (!updateStaffTotals($conn, $productandservice_details, 'add')) {
+            error_log("Failed to add new staff totals for billing update: " . $edit_billing_id);
+        }
+
         $output = ["head" => ["code" => 200, "msg" => "Billing updated successfully"]];
     } else {
+        // If update failed, re-add the old totals to rollback staff changes
+        if (!updateStaffTotals($conn, $old_details, 'add')) {
+            error_log("Failed to rollback staff totals after billing update failure: " . $edit_billing_id);
+        }
         $output = ["head" => ["code" => 400, "msg" => "Update error: " . $upd->error]];
     }
     echo json_encode($output);
@@ -252,11 +273,32 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
 elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
     $delete_billing_id = $obj->delete_billing_id;   // numeric id
     $delete_by_id = $obj->delete_by_id ?? 1;
+
+    // Fetch old details before delete
+    $fetchStmt = $conn->prepare("SELECT productandservice_details FROM billing WHERE id = ? AND delete_at = 0");
+    $fetchStmt->bind_param("i", $delete_billing_id);
+    $fetchStmt->execute();
+    $fetchRow = $fetchStmt->get_result()->fetch_assoc();
+    if (!$fetchRow) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Billing not found"]]);
+        exit;
+    }
+    $old_details = $fetchRow['productandservice_details'];
+
+    // Subtract staff totals
+    if (!updateStaffTotals($conn, $old_details, 'subtract')) {
+        error_log("Failed to subtract staff totals for deleted billing: " . $delete_billing_id);
+    }
+
     $stmt = $conn->prepare("UPDATE billing SET delete_at = 1, delete_by_id = ? WHERE id = ?");
     $stmt->bind_param("ii", $delete_by_id, $delete_billing_id);
     if ($stmt->execute()) {
         $output = ["head" => ["code" => 200, "msg" => "Billing deleted successfully"]];
     } else {
+        // Rollback staff totals if delete failed
+        if (!updateStaffTotals($conn, $old_details, 'add')) {
+            error_log("Failed to rollback staff totals after delete failure: " . $delete_billing_id);
+        }
         $output = ["head" => ["code" => 400, "msg" => "Delete error: " . $stmt->error]];
     }
     echo json_encode($output);

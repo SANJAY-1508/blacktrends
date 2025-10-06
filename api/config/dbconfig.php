@@ -37,3 +37,30 @@ function generateMemberNo($insertId)
 {
     return "Member_" . sprintf("%03d", $insertId);
 }
+
+
+
+// Helper function to update staff totals
+function updateStaffTotals($conn, $details, $operation)
+{
+    if (empty($details)) return false;
+
+    $parsedDetails = json_decode($details, true);
+    if (!is_array($parsedDetails)) return false;
+
+    $multiplier = ($operation === 'add') ? 1 : -1;
+
+    foreach ($parsedDetails as $item) {
+        if (isset($item['staff_id']) && !empty($item['staff_id']) && isset($item['total'])) {
+            $staff_id = $item['staff_id'];
+            $amount = floatval($item['total']) * $multiplier;
+
+            $stmt = $conn->prepare("UPDATE staff SET total = total + ? WHERE staff_id = ? AND delete_at = 0");
+            $stmt->bind_param("ds", $amount, $staff_id);
+            if (!$stmt->execute()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
