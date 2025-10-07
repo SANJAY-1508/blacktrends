@@ -48,7 +48,7 @@ if ($action === 'listBilling') {
     ];
 }
 
-//  -----------  2. ADD  --------------------
+// -----------  2. ADD  --------------------
 elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) && isset($obj->phone)) {
     $billing_date = $obj->billing_date ?? $timestamp;
     $member_no = trim($obj->member_no);
@@ -63,8 +63,9 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     $total_visit_count = intval($obj->total_visit_count ?? 0);
     $total_spending = floatval($obj->total_spending ?? 0);
     $membership = in_array($obj->membership, ['Yes', 'No']) ? $obj->membership : 'No';
-    $created_by_id = $obj->created_by_id ?? 1; // Assume from auth
+    $created_by_id = $obj->created_by_id ?? 1;
     $updated_by_id = $created_by_id;
+    $member_id = $obj->member_id ?? null;
 
     if (empty($name) || empty($phone) || empty($member_no)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
@@ -83,17 +84,29 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         exit;
     }
 
-    // Check if member_no exists and get member_id
-    $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_no = ? AND delete_at = 0");
-    $memberCheck->bind_param("s", $member_no);
-    $memberCheck->execute();
-    $memberResult = $memberCheck->get_result();
-    if ($memberResult->num_rows === 0) {
-        echo json_encode(["head" => ["code" => 400, "msg" => "Invalid member number"]]);
-        exit;
+    // Check if member_no exists and get member_id (use provided if available, else fetch)
+    if (!$member_id) {
+        $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_no = ? AND delete_at = 0");
+        $memberCheck->bind_param("s", $member_no);
+        $memberCheck->execute();
+        $memberResult = $memberCheck->get_result();
+        if ($memberResult->num_rows === 0) {
+            echo json_encode(["head" => ["code" => 400, "msg" => "Invalid member number"]]);
+            exit;
+        }
+        $memberRow = $memberResult->fetch_assoc();
+        $member_id = $memberRow['id'];
+    } else {
+        // Validate provided member_id matches member_no
+        $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_id = ? AND member_no = ? AND delete_at = 0");
+        $memberCheck->bind_param("ss", $member_id, $member_no);
+        $memberCheck->execute();
+        $memberResult = $memberCheck->get_result();
+        if ($memberResult->num_rows === 0) {
+            echo json_encode(["head" => ["code" => 400, "msg" => "Invalid member_id or member_no mismatch"]]);
+            exit;
+        }
     }
-    $memberRow = $memberResult->fetch_assoc();
-    $member_id = $memberRow['id'];
 
     // Update member with received stats (frontend already updated)
     $updateMember = $conn->prepare(
