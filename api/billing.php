@@ -63,8 +63,8 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     $total_visit_count = intval($obj->total_visit_count ?? 0);
     $total_spending = floatval($obj->total_spending ?? 0);
     $membership = in_array($obj->membership, ['Yes', 'No']) ? $obj->membership : 'No';
-    $created_by_id = $obj->created_by_id ?? 1;
-    $updated_by_id = $created_by_id;
+    $created_by_id = $obj->created_by_id ?? null;
+    $updated_by_id = null;
     $member_id = $obj->member_id ?? null;
 
     if (empty($name) || empty($phone) || empty($member_no)) {
@@ -127,7 +127,7 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         exit;
     }
 
-    // Insert billing with received values including stats
+    // Insert billing - Note: updated_by_id bound as NULL
     $stmtIns = $conn->prepare(
         "INSERT INTO billing (billing_date, member_id, member_no, name, phone, productandservice_details, 
          subtotal, discount, discount_type, total, last_visit_date, total_visit_count, total_spending, 
@@ -190,7 +190,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     $total_visit_count = intval($obj->total_visit_count ?? 0);
     $total_spending = floatval($obj->total_spending ?? 0);
     $membership = in_array($obj->membership, ['Yes', 'No']) ? $obj->membership : 'No';
-    $updated_by_id = $obj->updated_by_id ?? 1;
+    $updated_by_id = $obj->updated_by_id ?? null;
 
     if (empty($name) || empty($phone) || empty($member_no)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
@@ -284,8 +284,8 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
 
 // ------------ 4. DELETE (soft)  ---------------
 elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
-    $delete_billing_id = $obj->delete_billing_id;   // numeric id
-    $delete_by_id = $obj->delete_by_id ?? 1;
+    $delete_billing_id = $obj->delete_billing_id;
+    $delete_by_id = $obj->delete_by_id ?? null;
 
     // Fetch old details before delete
     $fetchStmt = $conn->prepare("SELECT productandservice_details FROM billing WHERE id = ? AND delete_at = 0");
@@ -304,7 +304,7 @@ elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
     }
 
     $stmt = $conn->prepare("UPDATE billing SET delete_at = 1, delete_by_id = ? WHERE id = ?");
-    $stmt->bind_param("ii", $delete_by_id, $delete_billing_id);
+    $stmt->bind_param("si", $delete_by_id, $delete_billing_id);
     if ($stmt->execute()) {
         $output = ["head" => ["code" => 200, "msg" => "Billing deleted successfully"]];
     } else {
