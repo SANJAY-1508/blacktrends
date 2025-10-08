@@ -20,7 +20,7 @@ $timestamp = date('Y-m-d H:i:s');
 
 $action = $obj->action ?? 'listBilling';
 
-// -------- 1. LIST  --------------------- 
+// -------- 1. LIST ---------------------
 if ($action === 'listBilling') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
@@ -46,9 +46,11 @@ if ($action === 'listBilling') {
         "head" => ["code" => 200, "msg" => $body["billing"] ? "Success" : "Billing Details Not Found"],
         "body" => $body
     ];
+    echo json_encode($output, JSON_NUMERIC_CHECK);
+    exit;
 }
 
-// -----------  2. ADD  --------------------
+// -------- 2. ADD --------------------
 elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) && isset($obj->phone)) {
     $billing_date = $obj->billing_date ?? $timestamp;
     $member_no = trim($obj->member_no);
@@ -59,10 +61,10 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     $discount = floatval($obj->discount ?? 0);
     $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
-    $membership = in_array($obj->membership, ['Yes', 'No']) ? $obj->membership : 'No';
+    $membership = in_array($obj->membership ?? 'No', ['Yes', 'No']) ? $obj->membership : 'No';
     $created_by_id = $obj->created_by_id ?? null;
     $updated_by_id = null;
-    $member_id = $obj->member_id ?? null;
+    $member_id_str = $obj->member_id ?? null;
 
     if (empty($name) || empty($phone) || empty($member_no)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
@@ -81,9 +83,9 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         exit;
     }
 
-    // Check if member_no exists and get member_id (use provided if available, else fetch)
-    if (!$member_id) {
-        $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_no = ? AND delete_at = 0");
+    // Check if member_no exists and get the string member_id (member.member_id)
+    if (empty($member_id_str)) {
+        $memberCheck = $conn->prepare("SELECT id, member_id FROM member WHERE member_no = ? AND delete_at = 0 LIMIT 1");
         $memberCheck->bind_param("s", $member_no);
         $memberCheck->execute();
         $memberResult = $memberCheck->get_result();
@@ -92,33 +94,36 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
             exit;
         }
         $memberRow = $memberResult->fetch_assoc();
-        $member_id = $memberRow['id'];
+        $member_id_str = $memberRow['member_id'];
     } else {
-        // Validate provided member_id matches member_no
-        $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_id = ? AND member_no = ? AND delete_at = 0");
-        $memberCheck->bind_param("ss", $member_id, $member_no);
+        // validate provided member_id string exists
+        $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_id = ? AND delete_at = 0 LIMIT 1");
+        $memberCheck->bind_param("s", $member_id_str);
         $memberCheck->execute();
         $memberResult = $memberCheck->get_result();
         if ($memberResult->num_rows === 0) {
-            echo json_encode(["head" => ["code" => 400, "msg" => "Invalid member_id or member_no mismatch"]]);
+            echo json_encode(["head" => ["code" => 400, "msg" => "Invalid member_id provided"]]);
             exit;
         }
     }
 
-    // Insert billing - Note: updated_by_id bound as NULL
+    // productandservice_details should be stored as JSON string in DB
+    $details_json = is_string($productandservice_details) ? $productandservice_details : json_encode($productandservice_details);
+
+
     $stmtIns = $conn->prepare(
         "INSERT INTO billing (billing_date, member_id, member_no, name, phone, productandservice_details, 
-         subtotal, discount, discount_type, total,membership, create_at, delete_at, created_by_id, updated_by_id)
+         subtotal, discount, discount_type, total, membership, create_at, delete_at, created_by_id, updated_by_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
     );
     $stmtIns->bind_param(
         "ssssssdssdsss",
         $billing_date,
-        $member_id,
+        $member_id_str,
         $member_no,
         $name,
         $phone,
-        $productandservice_details,
+        $details_json,
         $subtotal,
         $discount,
         $discount_type,
@@ -129,38 +134,41 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     );
     if ($stmtIns->execute()) {
         $insertId = $stmtIns->insert_id;
-        $billing_id = uniqueID("billing", $insertId);
+
+        if (function_exists('uniqueID')) {
+            $billing_id = uniqueID("billing", $insertId);
+        } else {
+            $billing_id = md5(uniqid((string)$insertId, true));
+        }
         $upd = $conn->prepare("UPDATE billing SET billing_id = ? WHERE id = ?");
         $upd->bind_param("si", $billing_id, $insertId);
         $upd->execute();
 
-        // Update staff totals after successful insert
-        if (!updateStaffTotals($conn, $productandservice_details, 'add')) {
-            // Optionally rollback, but for now, log error
-            error_log("Failed to update staff totals for new billing: " . $billing_id);
-        }
 
-        $output = ["head" => ["code" => 200, "msg" => "Billing created successfully"]];
+        updateStaffTotals($conn, $details_json, 'add');
+        updateMemberTotals($conn, $member_id_str);
+
+        $output = ["head" => ["code" => 200, "msg" => "Billing created successfully"], "body" => ["billing_id" => $billing_id]];
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Insert error: " . $stmtIns->error]];
     }
-    echo json_encode($output);
+    echo json_encode($output, JSON_NUMERIC_CHECK);
     exit;
 }
 
-//  ----------- 3. UPDATE --------------------
+// -------- 3. UPDATE --------------------
 elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     $edit_billing_id = $obj->edit_billing_id;
     $billing_date = $obj->billing_date ?? $timestamp;
-    $member_no = trim($obj->member_no);
-    $name = trim($obj->name);
-    $phone = trim($obj->phone);
+    $member_no = trim($obj->member_no ?? '');
+    $name = trim($obj->name ?? '');
+    $phone = trim($obj->phone ?? '');
     $productandservice_details = $obj->productandservice_details ?? '';
     $subtotal = floatval($obj->subtotal ?? 0);
     $discount = floatval($obj->discount ?? 0);
     $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
-    $membership = in_array($obj->membership, ['Yes', 'No']) ? $obj->membership : 'No';
+    $membership = in_array($obj->membership ?? 'No', ['Yes', 'No']) ? $obj->membership : 'No';
     $updated_by_id = $obj->updated_by_id ?? null;
 
     if (empty($name) || empty($phone) || empty($member_no)) {
@@ -176,8 +184,8 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         exit;
     }
 
-    // Get existing billing to check if member_no changed and fetch old details
-    $existingStmt = $conn->prepare("SELECT member_id, member_no, productandservice_details FROM billing WHERE billing_id = ? AND delete_at = 0");
+    // Fetch existing billing by billing_id (string)
+    $existingStmt = $conn->prepare("SELECT id, member_id, member_no, productandservice_details FROM billing WHERE billing_id = ? AND delete_at = 0 LIMIT 1");
     $existingStmt->bind_param("s", $edit_billing_id);
     $existingStmt->execute();
     $existingRow = $existingStmt->get_result()->fetch_assoc();
@@ -185,14 +193,14 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Billing not found"]]);
         exit;
     }
-    $existing_member_id = $existingRow['member_id'];
+    $existing_member_id_str = $existingRow['member_id'];
     $existing_member_no = $existingRow['member_no'];
     $old_details = $existingRow['productandservice_details'];
 
-    $member_id = $existing_member_id;
+    // Determine new member_id_str (string) based on provided member_no
+    $member_id_str = $existing_member_id_str;
     if ($member_no !== $existing_member_no) {
-        // Member changed, get new member_id
-        $memberCheck = $conn->prepare("SELECT id FROM member WHERE member_no = ? AND delete_at = 0");
+        $memberCheck = $conn->prepare("SELECT member_id FROM member WHERE member_no = ? AND delete_at = 0 LIMIT 1");
         $memberCheck->bind_param("s", $member_no);
         $memberCheck->execute();
         $newMemberResult = $memberCheck->get_result();
@@ -201,28 +209,27 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
             exit;
         }
         $newMemberRow = $newMemberResult->fetch_assoc();
-        $member_id = $newMemberRow['id'];
+        $member_id_str = $newMemberRow['member_id'];
     }
 
-    // Subtract old staff totals
-    if (!updateStaffTotals($conn, $old_details, 'subtract')) {
-        error_log("Failed to subtract old staff totals for billing update: " . $edit_billing_id);
-    }
+    // Subtract old staff totals (if any)
+    updateStaffTotals($conn, $old_details, 'subtract');
+
+    $details_json = is_string($productandservice_details) ? $productandservice_details : json_encode($productandservice_details);
 
     $upd = $conn->prepare(
         "UPDATE billing SET billing_date = ?, member_id = ?, member_no = ?, name = ?, phone = ?, 
          productandservice_details = ?, subtotal = ?, discount = ?, discount_type = ?, total = ?, membership = ?,
-         updated_by_id = ?
-         WHERE billing_id = ?"
+         updated_by_id = ? WHERE billing_id = ?"
     );
     $upd->bind_param(
         "ssssssdssdsss",
         $billing_date,
-        $member_id,
+        $member_id_str,
         $member_no,
         $name,
         $phone,
-        $productandservice_details,
+        $details_json,
         $subtotal,
         $discount,
         $discount_type,
@@ -231,31 +238,33 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         $updated_by_id,
         $edit_billing_id
     );
+
     if ($upd->execute()) {
-        // Add new staff totals
-        if (!updateStaffTotals($conn, $productandservice_details, 'add')) {
-            error_log("Failed to add new staff totals for billing update: " . $edit_billing_id);
+
+        updateStaffTotals($conn, $details_json, 'add');
+        updateMemberTotals($conn, $member_id_str);
+
+        if ($member_id_str !== $existing_member_id_str) {
+            updateMemberTotals($conn, $existing_member_id_str);
         }
 
         $output = ["head" => ["code" => 200, "msg" => "Billing updated successfully"]];
     } else {
-        // If update failed, re-add the old totals to rollback staff changes
-        if (!updateStaffTotals($conn, $old_details, 'add')) {
-            error_log("Failed to rollback staff totals after billing update failure: " . $edit_billing_id);
-        }
+
+        updateStaffTotals($conn, $old_details, 'add');
         $output = ["head" => ["code" => 400, "msg" => "Update error: " . $upd->error]];
     }
-    echo json_encode($output);
+    echo json_encode($output, JSON_NUMERIC_CHECK);
     exit;
 }
 
-// ------------ 4. DELETE (soft)  ---------------
+// -------- 4. DELETE --------------------
 elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
     $delete_billing_id = $obj->delete_billing_id;
     $delete_by_id = $obj->delete_by_id ?? null;
 
-    // Fetch old details before delete
-    $fetchStmt = $conn->prepare("SELECT productandservice_details FROM billing WHERE id = ? AND delete_at = 0");
+    // Fetch billing row by numeric id to get member_id (string) and details
+    $fetchStmt = $conn->prepare("SELECT member_id, productandservice_details FROM billing WHERE id = ? AND delete_at = 0 LIMIT 1");
     $fetchStmt->bind_param("i", $delete_billing_id);
     $fetchStmt->execute();
     $fetchRow = $fetchStmt->get_result()->fetch_assoc();
@@ -263,25 +272,23 @@ elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Billing not found"]]);
         exit;
     }
+    $member_id_str = $fetchRow['member_id'];
     $old_details = $fetchRow['productandservice_details'];
 
     // Subtract staff totals
-    if (!updateStaffTotals($conn, $old_details, 'subtract')) {
-        error_log("Failed to subtract staff totals for deleted billing: " . $delete_billing_id);
-    }
+    updateStaffTotals($conn, $old_details, 'subtract');
 
+    // Soft delete
     $stmt = $conn->prepare("UPDATE billing SET delete_at = 1, delete_by_id = ? WHERE id = ?");
     $stmt->bind_param("si", $delete_by_id, $delete_billing_id);
     if ($stmt->execute()) {
+        if (!empty($member_id_str)) updateMemberTotals($conn, $member_id_str);
         $output = ["head" => ["code" => 200, "msg" => "Billing deleted successfully"]];
     } else {
-        // Rollback staff totals if delete failed
-        if (!updateStaffTotals($conn, $old_details, 'add')) {
-            error_log("Failed to rollback staff totals after delete failure: " . $delete_billing_id);
-        }
+        updateStaffTotals($conn, $old_details, 'add');
         $output = ["head" => ["code" => 400, "msg" => "Delete error: " . $stmt->error]];
     }
-    echo json_encode($output);
+    echo json_encode($output, JSON_NUMERIC_CHECK);
     exit;
 }
 
@@ -309,7 +316,7 @@ elseif ($action === 'staffReport') {
         $details = json_decode($b['productandservice_details'], true);
         if (is_array($details)) {
             foreach ($details as $item) {
-                if (isset($item['staff_id'])) {
+                if (isset($item['staff_id']) && $item['staff_id'] !== null && $item['staff_id'] !== '') {
                     $staff_ids[$item['staff_id']] = true;
                 }
             }
@@ -320,11 +327,11 @@ elseif ($action === 'staffReport') {
     $staff_map = [];
     if (!empty($staff_ids)) {
         $id_list = array_keys($staff_ids);
-        $placeholders = str_repeat('?,', count($id_list) - 1) . '?';
+        $placeholders = implode(',', array_fill(0, count($id_list), '?'));
         $staff_sql = "SELECT staff_id, name, phone, address FROM staff WHERE staff_id IN ($placeholders) AND delete_at = 0";
+        $types = str_repeat('s', count($id_list));
         $staff_stmt = $conn->prepare($staff_sql);
-        $staff_types = str_repeat('s', count($id_list));
-        $staff_stmt->bind_param($staff_types, ...$id_list);
+        $staff_stmt->bind_param($types, ...$id_list);
         $staff_stmt->execute();
         $s_result = $staff_stmt->get_result();
         while ($s_row = $s_result->fetch_assoc()) {
@@ -377,7 +384,7 @@ elseif ($action === 'staffReport') {
         "head" => ["code" => 200, "msg" => !empty($staff_data) ? "Success" : "No data found"],
         "body" => $body
     ];
-    echo json_encode($output);
+    echo json_encode($output, JSON_NUMERIC_CHECK);
     exit;
 }
 
@@ -404,7 +411,7 @@ elseif ($action === 'memberReport') {
 
     $sql = "SELECT b.id, DATE(b.billing_date) as report_date, b.member_id, b.member_no, m.name, m.phone, b.membership, b.total 
             FROM billing b 
-            JOIN member m ON b.member_id = m.id 
+            JOIN member m ON b.member_id = m.member_id 
             WHERE b.delete_at = 0 AND m.delete_at = 0 
             AND b.billing_date BETWEEN ? AND ? $search_cond 
             ORDER BY b.billing_date DESC, b.member_id ASC, b.id DESC";
@@ -440,10 +447,64 @@ elseif ($action === 'memberReport') {
         "head" => ["code" => 200, "msg" => !empty($member_data) ? "Success" : "No data found"],
         "body" => $body
     ];
-    echo json_encode($output);
+    echo json_encode($output, JSON_NUMERIC_CHECK);
     exit;
 } else {
     $output = ["head" => ["code" => 400, "msg" => "Invalid action / parameters"]];
+    echo json_encode($output, JSON_NUMERIC_CHECK);
+    exit;
 }
 
-echo json_encode($output, JSON_NUMERIC_CHECK);
+
+// ---------------- Helper Functions ----------------
+
+function updateStaffTotals($conn, $details, $operation)
+{
+    if (empty($details)) return false;
+    $parsedDetails = json_decode($details, true);
+    if (!is_array($parsedDetails)) return false;
+    $multiplier = ($operation === 'add') ? 1 : -1;
+
+    foreach ($parsedDetails as $item) {
+        if (isset($item['staff_id']) && $item['staff_id'] !== null && $item['staff_id'] !== '' && isset($item['total'])) {
+            $staff_id = $item['staff_id'];
+            $amount = floatval($item['total']) * $multiplier;
+            $stmt = $conn->prepare("UPDATE staff SET total = total + ? WHERE staff_id = ? AND delete_at = 0");
+            $stmt->bind_param("ds", $amount, $staff_id);
+            $stmt->execute();
+        }
+    }
+    return true;
+}
+
+function updateMemberTotals($conn, $member_id_str)
+{
+    if (empty($member_id_str)) return false;
+
+    // Use member_id string in WHERE
+    $stmt = $conn->prepare("
+        SELECT 
+            COUNT(*) AS total_visit_count,
+            COALESCE(SUM(total), 0) AS total_spending,
+            MAX(billing_date) AS last_visit_date
+        FROM billing
+        WHERE member_id = ? AND delete_at = 0
+    ");
+    $stmt->bind_param("s", $member_id_str);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+
+    $total_visit_count = intval($result['total_visit_count']);
+    $total_spending = floatval($result['total_spending']);
+    $last_visit_date = $result['last_visit_date'] ?? null;
+
+    // Update member table using member.member_id (string)
+    $upd = $conn->prepare("
+        UPDATE member
+        SET last_visit_date = ?, total_visit_count = ?, total_spending = ?
+        WHERE member_id = ? AND delete_at = 0
+    ");
+
+    $upd->bind_param("sids", $last_visit_date, $total_visit_count, $total_spending, $member_id_str);
+    return $upd->execute();
+}
