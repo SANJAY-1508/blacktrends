@@ -26,7 +26,7 @@ if ($action === 'listBilling') {
     $stmt = $conn->prepare(
         "SELECT `id`, `billing_id`, `billing_date`, `member_id`, `member_no`, `name`, `phone`, 
                 `productandservice_details`, `subtotal`, `discount`, `discount_type`, `total`, 
-                `last_visit_date`, `total_visit_count`, `total_spending`, `membership`,
+                `membership`,
                 `create_at`, `delete_at`, `created_by_id`, `updated_by_id`, `delete_by_id`
          FROM `billing`
          WHERE `delete_at` = 0
@@ -59,9 +59,6 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     $discount = floatval($obj->discount ?? 0);
     $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
-    $last_visit_date = $obj->last_visit_date ?? $billing_date;
-    $total_visit_count = intval($obj->total_visit_count ?? 0);
-    $total_spending = floatval($obj->total_spending ?? 0);
     $membership = in_array($obj->membership, ['Yes', 'No']) ? $obj->membership : 'No';
     $created_by_id = $obj->created_by_id ?? null;
     $updated_by_id = null;
@@ -79,7 +76,7 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         echo json_encode(["head" => ["code" => 400, "msg" => "Phone must be 10 digits"]]);
         exit;
     }
-    if ($subtotal < 0 || $discount < 0 || $total < 0 || $total_spending < 0) {
+    if ($subtotal < 0 || $discount < 0 || $total < 0) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Amounts cannot be negative"]]);
         exit;
     }
@@ -108,34 +105,14 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         }
     }
 
-    // Update member with received stats (frontend already updated)
-    $updateMember = $conn->prepare(
-        "UPDATE member SET last_visit_date = ?, total_visit_count = ?, 
-         total_spending = ?, membership = ? 
-         WHERE id = ? AND delete_at = 0"
-    );
-    $updateMember->bind_param(
-        "sidss",
-        $last_visit_date,
-        $total_visit_count,
-        $total_spending,
-        $membership,
-        $member_id
-    );
-    if (!$updateMember->execute()) {
-        echo json_encode(["head" => ["code" => 400, "msg" => "Member update error: " . $updateMember->error]]);
-        exit;
-    }
-
     // Insert billing - Note: updated_by_id bound as NULL
     $stmtIns = $conn->prepare(
         "INSERT INTO billing (billing_date, member_id, member_no, name, phone, productandservice_details, 
-         subtotal, discount, discount_type, total, last_visit_date, total_visit_count, total_spending, 
-         membership, create_at, delete_at, created_by_id, updated_by_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
+         subtotal, discount, discount_type, total,membership, create_at, delete_at, created_by_id, updated_by_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
     );
     $stmtIns->bind_param(
-        "ssssssdssdsidsss",
+        "ssssssdssdsss",
         $billing_date,
         $member_id,
         $member_no,
@@ -146,9 +123,6 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         $discount,
         $discount_type,
         $total,
-        $last_visit_date,
-        $total_visit_count,
-        $total_spending,
         $membership,
         $created_by_id,
         $updated_by_id
@@ -186,9 +160,6 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     $discount = floatval($obj->discount ?? 0);
     $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
-    $last_visit_date = $obj->last_visit_date ?? $billing_date;
-    $total_visit_count = intval($obj->total_visit_count ?? 0);
-    $total_spending = floatval($obj->total_spending ?? 0);
     $membership = in_array($obj->membership, ['Yes', 'No']) ? $obj->membership : 'No';
     $updated_by_id = $obj->updated_by_id ?? null;
 
@@ -200,7 +171,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Invalid data"]]);
         exit;
     }
-    if ($subtotal < 0 || $discount < 0 || $total < 0 || $total_spending < 0) {
+    if ($subtotal < 0 || $discount < 0 || $total < 0) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Amounts cannot be negative"]]);
         exit;
     }
@@ -240,13 +211,12 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
 
     $upd = $conn->prepare(
         "UPDATE billing SET billing_date = ?, member_id = ?, member_no = ?, name = ?, phone = ?, 
-         productandservice_details = ?, subtotal = ?, discount = ?, discount_type = ?, total = ?, 
-         last_visit_date = ?, total_visit_count = ?, total_spending = ?, membership = ?, 
+         productandservice_details = ?, subtotal = ?, discount = ?, discount_type = ?, total = ?, membership = ?,
          updated_by_id = ?
          WHERE billing_id = ?"
     );
     $upd->bind_param(
-        "ssssssdssdsidsss",
+        "ssssssdssdsss",
         $billing_date,
         $member_id,
         $member_no,
@@ -257,9 +227,6 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         $discount,
         $discount_type,
         $total,
-        $last_visit_date,
-        $total_visit_count,
-        $total_spending,
         $membership,
         $updated_by_id,
         $edit_billing_id
@@ -435,7 +402,7 @@ elseif ($action === 'memberReport') {
         $params = array_merge($params, [$like, $like]);
     }
 
-    $sql = "SELECT b.id, DATE(b.billing_date) as report_date, b.member_id, b.member_no, m.name, m.phone, b.membership, b.last_visit_date, b.total_visit_count, b.total_spending, b.total 
+    $sql = "SELECT b.id, DATE(b.billing_date) as report_date, b.member_id, b.member_no, m.name, m.phone, b.membership, b.total 
             FROM billing b 
             JOIN member m ON b.member_id = m.id 
             WHERE b.delete_at = 0 AND m.delete_at = 0 
