@@ -25,7 +25,7 @@ if ($action === 'listBilling') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
         "SELECT `id`, `billing_id`, `billing_date`, `member_id`, `member_no`, `name`, `phone`, 
-                `productandservice_details`, `subtotal`, `discount`, `discount_type`, `total`, 
+                `productandservice_details`, `subtotal`, `discount`, `discount_type`, `total`, `paid`, `balance`,
                 `membership`,
                 `create_at`, `delete_at`, `created_by_id`, `updated_by_id`, `delete_by_id`
          FROM `billing`
@@ -61,6 +61,8 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
     $discount = floatval($obj->discount ?? 0);
     $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
+    $paid = floatval($obj->paid ?? 0);
+    $balance = floatval($obj->balance ?? 0);
     $membership = in_array($obj->membership ?? 'No', ['Yes', 'No']) ? $obj->membership : 'No';
     $created_by_id = $obj->created_by_id ?? null;
     $updated_by_id = null;
@@ -113,11 +115,11 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
 
     $stmtIns = $conn->prepare(
         "INSERT INTO billing (billing_date, member_id, member_no, name, phone, productandservice_details, 
-         subtotal, discount, discount_type, total, membership, create_at, delete_at, created_by_id, updated_by_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
+         subtotal, discount, discount_type, total, paid, balance, membership, create_at, delete_at, created_by_id, updated_by_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, ?, ?)"
     );
     $stmtIns->bind_param(
-        "ssssssdssdsss",
+        "ssssssdssdddsss",
         $billing_date,
         $member_id_str,
         $member_no,
@@ -128,6 +130,8 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         $discount,
         $discount_type,
         $total,
+        $paid,
+        $balance,
         $membership,
         $created_by_id,
         $updated_by_id
@@ -168,6 +172,8 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     $discount = floatval($obj->discount ?? 0);
     $discount_type = in_array($obj->discount_type ?? 'INR', ['INR', 'PER']) ? $obj->discount_type : 'INR';
     $total = floatval($obj->total ?? 0);
+    $paid = floatval($obj->paid ?? 0);
+    $balance = floatval($obj->balance ?? 0);
     $membership = in_array($obj->membership ?? 'No', ['Yes', 'No']) ? $obj->membership : 'No';
     $updated_by_id = $obj->updated_by_id ?? null;
 
@@ -197,6 +203,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     $existing_member_no = $existingRow['member_no'];
     $old_details = $existingRow['productandservice_details'];
 
+
     // Determine new member_id_str (string) based on provided member_no
     $member_id_str = $existing_member_id_str;
     if ($member_no !== $existing_member_no) {
@@ -219,11 +226,11 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
 
     $upd = $conn->prepare(
         "UPDATE billing SET billing_date = ?, member_id = ?, member_no = ?, name = ?, phone = ?, 
-         productandservice_details = ?, subtotal = ?, discount = ?, discount_type = ?, total = ?, membership = ?,
+         productandservice_details = ?, subtotal = ?, discount = ?, discount_type = ?, total = ?, paid = ?, balance = ?, membership = ?,
          updated_by_id = ? WHERE billing_id = ?"
     );
     $upd->bind_param(
-        "ssssssdssdsss",
+        "ssssssdssdddsss",
         $billing_date,
         $member_id_str,
         $member_no,
@@ -234,6 +241,8 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         $discount,
         $discount_type,
         $total,
+        $paid,
+        $balance,
         $membership,
         $updated_by_id,
         $edit_billing_id
