@@ -24,7 +24,7 @@ $action = $obj->action ?? 'listProductAndService';
 if ($action === 'listProductAndService') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `productandservice_id`, `productandservice_name`, `productandservice_price`,
+        "SELECT `id`, `productandservice_id`, `category_id`, `category_name`, `productandservice_name`, `productandservice_price`,
                 `create_at`, `delete_at`
          FROM `productandservice`
          WHERE `delete_at` = 0
@@ -47,11 +47,12 @@ if ($action === 'listProductAndService') {
 }
 
 //  -----------  2. ADD  -----------------
-elseif ($action === 'addProductAndService' && isset($obj->productandservice_name) && isset($obj->productandservice_price)) {
+elseif ($action === 'addProductAndService' && isset($obj->productandservice_name) && isset($obj->productandservice_price) && isset($obj->category_id)) {
     $name   = trim($obj->productandservice_name);
     $price  = trim($obj->productandservice_price);
+    $cat_id = trim($obj->category_id);
 
-    if (empty($name) || empty($price)) {
+    if (empty($name) || empty($price) || empty($cat_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
@@ -64,6 +65,18 @@ elseif ($action === 'addProductAndService' && isset($obj->productandservice_name
         exit;
     }
 
+    // check category exists
+    $stmt = $conn->prepare("SELECT category_name FROM category WHERE category_id = ? AND delete_at = 0");
+    $stmt->bind_param("s", $cat_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Invalid category"]]);
+        exit;
+    }
+    $cat_row = $result->fetch_assoc();
+    $cat_name = $cat_row['category_name'];
+
     // uniqueness
     $stmt = $conn->prepare("SELECT id FROM productandservice WHERE productandservice_name = ? AND delete_at = 0");
     $stmt->bind_param("s", $name);
@@ -74,10 +87,10 @@ elseif ($action === 'addProductAndService' && isset($obj->productandservice_name
     }
 
     $stmtIns = $conn->prepare(
-        "INSERT INTO productandservice (productandservice_name, productandservice_price, create_at, delete_at)
-         VALUES (?, ?, NOW(), 0)"
+        "INSERT INTO productandservice (productandservice_name, productandservice_price, category_id, category_name, create_at, delete_at)
+         VALUES (?, ?, ?, ?, NOW(), 0)"
     );
-    $stmtIns->bind_param("sd", $name, $price);
+    $stmtIns->bind_param("sdss", $name, $price, $cat_id, $cat_name);
     if ($stmtIns->execute()) {
         $insertId  = $stmtIns->insert_id;
         $ps_id     = uniqueID("productandservice", $insertId);      // <-- your helper
@@ -94,12 +107,13 @@ elseif ($action === 'addProductAndService' && isset($obj->productandservice_name
 }
 
 //  ----------- 3. UPDATE ---------------- 
-elseif ($action === 'updateProductAndService' && isset($obj->edit_productandservice_id)) {
+elseif ($action === 'updateProductAndService' && isset($obj->edit_productandservice_id) && isset($obj->category_id)) {
     $edit_ps_id = $obj->edit_productandservice_id;
     $name   = trim($obj->productandservice_name);
     $price  = trim($obj->productandservice_price);
+    $cat_id = trim($obj->category_id);
 
-    if (empty($name) || empty($price)) {
+    if (empty($name) || empty($price) || empty($cat_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
@@ -119,6 +133,18 @@ elseif ($action === 'updateProductAndService' && isset($obj->edit_productandserv
         exit;
     }
 
+    // check category
+    $stmt = $conn->prepare("SELECT category_name FROM category WHERE category_id = ? AND delete_at = 0");
+    $stmt->bind_param("s", $cat_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->num_rows == 0) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Invalid category"]]);
+        exit;
+    }
+    $cat_row = $result->fetch_assoc();
+    $cat_name = $cat_row['category_name'];
+
     // uniqueness (ignore own record)
     $chk = $conn->prepare(
         "SELECT id FROM productandservice WHERE productandservice_name = ? AND id != ? AND delete_at = 0"
@@ -131,10 +157,10 @@ elseif ($action === 'updateProductAndService' && isset($obj->edit_productandserv
     }
 
     $upd = $conn->prepare(
-        "UPDATE productandservice SET productandservice_name = ?, productandservice_price = ?
+        "UPDATE productandservice SET productandservice_name = ?, productandservice_price = ?, category_id = ?, category_name = ?
          WHERE productandservice_id = ?"
     );
-    $upd->bind_param("sds", $name, $price, $edit_ps_id);
+    $upd->bind_param("sdsss", $name, $price, $cat_id, $cat_name, $edit_ps_id);
     if ($upd->execute()) {
         $output = ["head" => ["code" => 200, "msg" => "Product & Service updated successfully"]];
     } else {
