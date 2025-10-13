@@ -63,8 +63,7 @@ elseif ($action === 'addusers' && isset($obj->Name) && isset($obj->Mobile_Number
 
     // Validate Required Fields
     if (!empty($Name) && !empty($Mobile_Number) && !empty($Password)) {
-        // Validate Name (Alphanumeric, spaces, dots, and commas allowed)
-        if (preg_match('/^[a-zA-Z0-9., ]+$/', $Name)) {
+       
             // Validate Mobile Number (Numeric and exactly 10 digits)
             if (is_numeric($Mobile_Number) && strlen($Mobile_Number) == 10) {
                 // Prepare statement to check if Mobile Number already exists
@@ -114,9 +113,7 @@ elseif ($action === 'addusers' && isset($obj->Name) && isset($obj->Mobile_Number
             } else {
                 $output = ["head" => ["code" => 400, "msg" => "Invalid Mobile Number"]];
             }
-        } else {
-            $output = ["head" => ["code" => 400, "msg" => "Name should be alphanumeric and can include spaces, dots, and commas"]];
-        }
+       
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
@@ -140,8 +137,7 @@ elseif ($action === 'updateuser' && isset($obj->user_id) && isset($obj->Name) &&
 
     // Validate Required Fields
     if (!empty($Name) && !empty($Mobile_Number) && !empty($Password)) {
-        // Validate Name (Alphanumeric, spaces, dots, and commas allowed)
-        if (preg_match('/^[a-zA-Z0-9., ]+$/', $Name)) {
+     
             // Validate Mobile Number (Numeric and exactly 10 digits)
             if (is_numeric($Mobile_Number) && strlen($Mobile_Number) == 10) {
                 // Update User
@@ -161,9 +157,7 @@ elseif ($action === 'updateuser' && isset($obj->user_id) && isset($obj->Name) &&
             } else {
                 $output = ["head" => ["code" => 400, "msg" => "Invalid Mobile Number"]];
             }
-        } else {
-            $output = ["head" => ["code" => 400, "msg" => "Name should be alphanumeric and can include spaces, dots, and commas"]];
-        }
+      
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
@@ -229,7 +223,7 @@ elseif ($action === "deleteUsers") {
                         "msg" => "Login Successful"
                     ],
                     "body" => [
-                        "user_id" => $user['id'],
+                        "user_id" => $user['user_id'],
                         "name" => $user['Name'],
                         "mobile_number" => $user['Mobile_Number']
                     ]

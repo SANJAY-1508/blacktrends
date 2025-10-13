@@ -56,10 +56,7 @@ elseif ($action === 'addProductAndService' && isset($obj->productandservice_name
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
-    if (!preg_match('/^[a-zA-Z0-9\s.,]+$/', $name)) {
-        echo json_encode(["head" => ["code" => 400, "msg" => "Invalid name"]]);
-        exit;
-    }
+   
     if (!is_numeric($price) || $price <= 0) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Price must be a positive number"]]);
         exit;
@@ -117,7 +114,7 @@ elseif ($action === 'updateProductAndService' && isset($obj->edit_productandserv
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
-    if (!preg_match('/^[a-zA-Z0-9\s.,]+$/', $name) || !is_numeric($price) || $price <= 0) {
+    if (!is_numeric($price) || $price <= 0) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Invalid data"]]);
         exit;
     }

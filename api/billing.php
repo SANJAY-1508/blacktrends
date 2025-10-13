@@ -72,10 +72,7 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
-    if (!preg_match('/^[a-zA-Z0-9\s.,]+$/', $name)) {
-        echo json_encode(["head" => ["code" => 400, "msg" => "Invalid name"]]);
-        exit;
-    }
+
     if (!preg_match('/^\d{10}$/', $phone)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Phone must be 10 digits"]]);
         exit;
@@ -181,7 +178,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
-    if (!preg_match('/^[a-zA-Z0-9\s.,]+$/', $name) || !preg_match('/^\d{10}$/', $phone)) {
+    if (!preg_match('/^\d{10}$/', $phone)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Invalid data"]]);
         exit;
     }

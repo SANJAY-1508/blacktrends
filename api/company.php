@@ -44,7 +44,7 @@ if ($action === 'listCompany') {
     $gst_no = $obj->gst_no ?? '';
 
     if (!empty($company_name) && !empty($contact_number)) {
-        if (preg_match('/^[a-zA-Z0-9., ]+$/', $company_name)) {
+        
             if (is_numeric($contact_number) && strlen($contact_number) == 10) {
                 $stmt = $conn->prepare("SELECT * FROM `company` WHERE `contact_number` = ? AND `delete_at` = 0");
                 $stmt->bind_param("s", $contact_number);
@@ -79,9 +79,7 @@ if ($action === 'listCompany') {
             } else {
                 $output = ["head" => ["code" => 400, "msg" => "Invalid Contact Number"]];
             }
-        } else {
-            $output = ["head" => ["code" => 400, "msg" => "Invalid Company Name"]];
-        }
+       
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Required fields missing"]];
     }
@@ -96,7 +94,7 @@ if ($action === 'listCompany') {
     $gst_no = $obj->gst_no ?? '';
 
     if (!empty($company_name) && !empty($contact_number)) {
-        if (preg_match('/^[a-zA-Z0-9., ]+$/', $company_name) && is_numeric($contact_number) && strlen($contact_number) == 10) {
+        if (is_numeric($contact_number) && strlen($contact_number) == 10) {
             // Get numeric id for check
             $idStmt = $conn->prepare("SELECT `id` FROM `company` WHERE `company_id` = ? AND `delete_at` = 0");
             $idStmt->bind_param("s", $edit_company_id);

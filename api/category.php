@@ -59,8 +59,6 @@ elseif ($action === 'addCategory' && isset($obj->category_name)) {
 
     // Validate Required Fields
     if (!empty($category_name)) {
-        // Validate category_name (Alphanumeric, spaces, dots, and commas allowed)
-        if (preg_match('/^[a-zA-Z0-9., ]+$/', $category_name)) {
             // Prepare statement to check if category_name already exists
             $stmt = $conn->prepare("SELECT * FROM `category` WHERE `category_name` = ? AND delete_at = 0");
             $stmt->bind_param("s", $category_name);
@@ -88,7 +86,7 @@ elseif ($action === 'addCategory' && isset($obj->category_name)) {
                         $stmt->bind_param("i", $insertId);
                         $stmt->execute();
                         $result = $stmt->get_result();
-
+                    
                         if ($result->num_rows > 0) {
                             $categories = $result->fetch_all(MYSQLI_ASSOC);
                         }
@@ -105,9 +103,7 @@ elseif ($action === 'addCategory' && isset($obj->category_name)) {
                 $output = ["head" => ["code" => 400, "msg" => "Category Name Already Exists"]];
             }
             $stmt->close();
-        } else {
-            $output = ["head" => ["code" => 400, "msg" => "Category name should be alphanumeric and can include spaces, dots, and commas"]];
-        }
+       
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
@@ -125,23 +121,19 @@ elseif ($action === 'updateCategory' && isset($obj->category_id) && isset($obj->
 
     // Validate Required Fields
     if (!empty($category_name)) {
-        // Validate category_name (Alphanumeric, spaces, dots, and commas allowed)
-        if (preg_match('/^[a-zA-Z0-9., ]+$/', $category_name)) {
-            // Update Category using prepared statement
+          // Update Category using prepared statement
             $stmt = $conn->prepare("UPDATE `category` SET `category_name` = ? WHERE `id` = ? AND `delete_at` = 0");
             $stmt->bind_param("si", $category_name, $category_id);
 
             if ($stmt->execute()) {
-                $output = ["head" => ["code" => 200, "msg" => "Category Details Updated Successfully", "id" => $category_id]];
+                $output = ["head" => ["code" => 200, "msg" => "Category Details Updated Successfully","id" => $category_id]];
             } else {
                 // Log the SQL error and return it
                 error_log("SQL Error: " . $stmt->error);
                 $output = ["head" => ["code" => 400, "msg" => "Failed to Update Category. Error: " . $stmt->error]];
             }
             $stmt->close();
-        } else {
-            $output = ["head" => ["code" => 400, "msg" => "Category name should be alphanumeric and can include spaces, dots, and commas"]];
-        }
+       
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
