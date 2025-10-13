@@ -24,7 +24,8 @@ $action = $obj->action ?? 'listMember';
 if ($action === 'listMember') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `membership`,`last_visit_date`,`total_visit_count`, `total_spending`,`create_at`, `delete_at`
+        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `membership`, `last_visit_date`, `total_visit_count`, `total_spending`, `create_at`, `membership_activated_at`, `delete_at`,
+         CASE WHEN `membership` = 'Yes' AND `membership_activated_at` IS NOT NULL AND DATE_ADD(`membership_activated_at`, INTERVAL 1 YEAR) < NOW() THEN 'expired' ELSE '' END as is_expired
          FROM `member`
          WHERE `delete_at` = 0
            AND `name` LIKE ?
@@ -75,11 +76,13 @@ elseif ($action === 'addmember' && isset($obj->name) && isset($obj->phone)) {
         exit;
     }
 
+    $activated_at = ($gold === 'Yes') ? $timestamp : NULL;
+
     $stmtIns = $conn->prepare(
-        "INSERT INTO member (name, phone, membership, create_at, delete_at)
-         VALUES (?, ?, ?, NOW(), 0)"
+        "INSERT INTO member (name, phone, membership, membership_activated_at, create_at, delete_at)
+         VALUES (?, ?, ?, ?, NOW(), 0)"
     );
-    $stmtIns->bind_param("sss", $name, $phone, $gold);
+    $stmtIns->bind_param("ssss", $name, $phone, $gold, $activated_at);
     if ($stmtIns->execute()) {
         $insertId   = $stmtIns->insert_id;
         $member_id  = uniqueID("member", $insertId);
@@ -102,7 +105,7 @@ elseif ($action === 'updatemember' && isset($obj->edit_member_id)) {
     $edit_member_id = $obj->edit_member_id;
     $name   = trim($obj->name);
     $phone  = trim($obj->phone);
-    $gold   = $obj->membership ?? 'No';
+    $new_gold   = $obj->membership ?? 'No';
 
     if (empty($name) || empty($phone)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
@@ -112,16 +115,24 @@ elseif ($action === 'updatemember' && isset($obj->edit_member_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Invalid data"]]);
         exit;
     }
-    if (!in_array($gold, ['Yes', 'No'])) $gold = 'No';
+    if (!in_array($new_gold, ['Yes', 'No'])) $new_gold = 'No';
 
-    // get numeric id
-    $idStmt = $conn->prepare("SELECT id FROM member WHERE member_id = ? AND delete_at = 0");
+    // get current details
+    $idStmt = $conn->prepare("SELECT id, membership, membership_activated_at FROM member WHERE member_id = ? AND delete_at = 0");
     $idStmt->bind_param("s", $edit_member_id);
     $idStmt->execute();
     $row = $idStmt->get_result()->fetch_assoc();
     $dbId = $row['id'] ?? 0;
+    $current_gold = $row['membership'] ?? 'No';
+    $current_activated_at = $row['membership_activated_at'];
     if (!$dbId) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Member not found"]]);
+        exit;
+    }
+
+    // Check downgrade: If current Yes, new No, and not expired
+    if ($current_gold === 'Yes' && $new_gold === 'No' && $current_activated_at && strtotime($current_activated_at . ' +1 year') > strtotime($timestamp)) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Cannot downgrade Gold membership before 1 year expiry"]]);
         exit;
     }
 
@@ -136,11 +147,35 @@ elseif ($action === 'updatemember' && isset($obj->edit_member_id)) {
         exit;
     }
 
-    $upd = $conn->prepare(
-        "UPDATE member SET name = ?, phone = ?, membership = ?
-         WHERE member_id = ?"
-    );
-    $upd->bind_param("ssss", $name, $phone, $gold, $edit_member_id);
+    // Determine new activated_at: Only reset if changing from No to Yes (renewal). If keeping Yes, keep old.
+    $new_activated_at = $current_activated_at; // Default: keep current
+    if ($new_gold === 'Yes' && $current_gold === 'No') {
+        $new_activated_at = $timestamp; // New activation/renewal
+    } elseif ($new_gold === 'No') {
+        $new_activated_at = NULL; // Downgrade
+    }
+    // If keeping Yes (expired or active), $new_activated_at remains old (no reset)
+
+    // Build UPDATE query dynamically: Only update fields that changed
+    $updateFields = "name = ?, phone = ?";
+    $params = [$name, $phone];
+    $types = "ss";
+    if ($new_gold !== $current_gold) {
+        $updateFields .= ", membership = ?";
+        $params[] = $new_gold;
+        $types .= "s";
+    }
+    if ($new_activated_at !== $current_activated_at) {
+        $updateFields .= ", membership_activated_at = ?";
+        $params[] = $new_activated_at;
+        $types .= "s";
+    }
+    $updateFields .= " WHERE member_id = ?";
+    $params[] = $edit_member_id;
+    $types .= "s";
+
+    $upd = $conn->prepare("UPDATE member SET $updateFields");
+    $upd->bind_param($types, ...$params);
     if ($upd->execute()) {
         $output = ["head" => ["code" => 200, "msg" => "Member updated successfully"]];
     } else {
@@ -164,22 +199,34 @@ elseif ($action === 'deleteMember' && isset($obj->delete_member_id)) {
     exit;
 }
 
-//  --------------  5. TOGGLE GOLD MEMBERSHIP (new AJAX endpoint) ---------------
+//  --------------  5. TOGGLE GOLD MEMBERSHIP ---------------
 elseif ($action === 'toggleGold' && isset($obj->member_id) && isset($obj->make_gold)) {
     $member_id  = $obj->member_id;
     $make_gold  = ($obj->make_gold === true || $obj->make_gold === 'Yes') ? 'Yes' : 'No';
 
-    // verify exists
-    $stmt = $conn->prepare("SELECT id FROM member WHERE member_id = ? AND delete_at = 0");
+    // verify exists & get current
+    $stmt = $conn->prepare("SELECT id, membership, membership_activated_at FROM member WHERE member_id = ? AND delete_at = 0");
     $stmt->bind_param("s", $member_id);
     $stmt->execute();
-    if ($stmt->get_result()->num_rows === 0) {
+    $row = $stmt->get_result()->fetch_assoc();
+    if (!$row) {
         echo json_encode(["head" => ["code" => 404, "msg" => "Member not found"]]);
         exit;
     }
+    $current_gold = $row['membership'];
+    $current_activated_at = $row['membership_activated_at'];
 
-    $upd = $conn->prepare("UPDATE member SET membership = ? WHERE member_id = ?");
-    $upd->bind_param("ss", $make_gold, $member_id);
+    // Check downgrade: If current Yes, new No, and not expired
+    if ($current_gold === 'Yes' && $make_gold === 'No' && $current_activated_at && strtotime($current_activated_at . ' +1 year') > strtotime($timestamp)) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Cannot downgrade Gold membership before 1 year expiry"]]);
+        exit;
+    }
+
+    // For toggle: Always set activated_at if Yes (renewal in listing)
+    $new_activated_at = ($make_gold === 'Yes') ? $timestamp : NULL;
+
+    $upd = $conn->prepare("UPDATE member SET membership = ?, membership_activated_at = ? WHERE member_id = ?");
+    $upd->bind_param("sss", $make_gold, $new_activated_at, $member_id);
     if ($upd->execute()) {
         $output = ["head" => ["code" => 200, "msg" => "Gold membership updated"]];
     } else {
