@@ -24,15 +24,15 @@ $action = $obj->action ?? 'listProductAndService';
 if ($action === 'listProductAndService') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `productandservice_id`, `category_id`, `category_name`, `productandservice_name`, `productandservice_price`,
+        "SELECT `id`, `productandservice_id`, `category_id`, `category_name`, `productandservice_name`, `productandservice_price`, `serial_number`,
                 `create_at`, `delete_at`
          FROM `productandservice`
          WHERE `delete_at` = 0
-           AND `productandservice_name` LIKE ?
+           AND (`productandservice_name` LIKE ? OR `serial_number` LIKE ?)
          ORDER BY `id` DESC"
     );
     $search_text = '%' . $search_text . '%';
-    $stmt->bind_param("s", $search_text);
+    $stmt->bind_param("ss", $search_text, $search_text);
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -47,16 +47,17 @@ if ($action === 'listProductAndService') {
 }
 
 //  -----------  2. ADD  -----------------
-elseif ($action === 'addProductAndService' && isset($obj->productandservice_name) && isset($obj->productandservice_price) && isset($obj->category_id)) {
+elseif ($action === 'addProductAndService' && isset($obj->productandservice_name) && isset($obj->productandservice_price) && isset($obj->category_id) && isset($obj->serial_no)) {
     $name   = trim($obj->productandservice_name);
     $price  = trim($obj->productandservice_price);
     $cat_id = trim($obj->category_id);
+    $serial_no = trim($obj->serial_no);
 
-    if (empty($name) || empty($price) || empty($cat_id)) {
+    if (empty($name) || empty($price) || empty($cat_id) || empty($serial_no)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
-   
+
     if (!is_numeric($price) || $price <= 0) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Price must be a positive number"]]);
         exit;
@@ -74,7 +75,7 @@ elseif ($action === 'addProductAndService' && isset($obj->productandservice_name
     $cat_row = $result->fetch_assoc();
     $cat_name = $cat_row['category_name'];
 
-    // uniqueness
+    // uniqueness on name
     $stmt = $conn->prepare("SELECT id FROM productandservice WHERE productandservice_name = ? AND delete_at = 0");
     $stmt->bind_param("s", $name);
     $stmt->execute();
@@ -83,11 +84,20 @@ elseif ($action === 'addProductAndService' && isset($obj->productandservice_name
         exit;
     }
 
+    // uniqueness on serial_no
+    $stmt = $conn->prepare("SELECT id FROM productandservice WHERE serial_number = ? AND delete_at = 0");
+    $stmt->bind_param("s", $serial_no);
+    $stmt->execute();
+    if ($stmt->get_result()->num_rows) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Serial number already exists"]]);
+        exit;
+    }
+
     $stmtIns = $conn->prepare(
-        "INSERT INTO productandservice (productandservice_name, productandservice_price, category_id, category_name, create_at, delete_at)
-         VALUES (?, ?, ?, ?, NOW(), 0)"
+        "INSERT INTO productandservice (productandservice_name, productandservice_price, category_id, category_name, serial_number, create_at, delete_at)
+         VALUES (?, ?, ?, ?, ?, NOW(), 0)"
     );
-    $stmtIns->bind_param("sdss", $name, $price, $cat_id, $cat_name);
+    $stmtIns->bind_param("sdsss", $name, $price, $cat_id, $cat_name, $serial_no);
     if ($stmtIns->execute()) {
         $insertId  = $stmtIns->insert_id;
         $ps_id     = uniqueID("productandservice", $insertId);      // <-- your helper
@@ -104,13 +114,14 @@ elseif ($action === 'addProductAndService' && isset($obj->productandservice_name
 }
 
 //  ----------- 3. UPDATE ---------------- 
-elseif ($action === 'updateProductAndService' && isset($obj->edit_productandservice_id) && isset($obj->category_id)) {
+elseif ($action === 'updateProductAndService' && isset($obj->edit_productandservice_id) && isset($obj->category_id) && isset($obj->serial_no)) {
     $edit_ps_id = $obj->edit_productandservice_id;
     $name   = trim($obj->productandservice_name);
     $price  = trim($obj->productandservice_price);
     $cat_id = trim($obj->category_id);
+    $serial_no = trim($obj->serial_no);
 
-    if (empty($name) || empty($price) || empty($cat_id)) {
+    if (empty($name) || empty($price) || empty($cat_id) || empty($serial_no)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
@@ -142,7 +153,7 @@ elseif ($action === 'updateProductAndService' && isset($obj->edit_productandserv
     $cat_row = $result->fetch_assoc();
     $cat_name = $cat_row['category_name'];
 
-    // uniqueness (ignore own record)
+    // uniqueness on name (ignore own record)
     $chk = $conn->prepare(
         "SELECT id FROM productandservice WHERE productandservice_name = ? AND id != ? AND delete_at = 0"
     );
@@ -153,11 +164,22 @@ elseif ($action === 'updateProductAndService' && isset($obj->edit_productandserv
         exit;
     }
 
+    // uniqueness on serial_no (ignore own record)
+    $chk = $conn->prepare(
+        "SELECT id FROM productandservice WHERE serial_number = ? AND id != ? AND delete_at = 0"
+    );
+    $chk->bind_param("si", $serial_no, $dbId);
+    $chk->execute();
+    if ($chk->get_result()->num_rows) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "Serial number already used"]]);
+        exit;
+    }
+
     $upd = $conn->prepare(
-        "UPDATE productandservice SET productandservice_name = ?, productandservice_price = ?, category_id = ?, category_name = ?
+        "UPDATE productandservice SET productandservice_name = ?, productandservice_price = ?, category_id = ?, category_name = ?, serial_number = ?
          WHERE productandservice_id = ?"
     );
-    $upd->bind_param("sdsss", $name, $price, $cat_id, $cat_name, $edit_ps_id);
+    $upd->bind_param("sdssss", $name, $price, $cat_id, $cat_name, $serial_no, $edit_ps_id);
     if ($upd->execute()) {
         $output = ["head" => ["code" => 200, "msg" => "Product & Service updated successfully"]];
     } else {
