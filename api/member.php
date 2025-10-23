@@ -24,7 +24,7 @@ $action = $obj->action ?? 'listMember';
 if ($action === 'listMember') {
     $search_text = $obj->search_text ?? '';
     $stmt = $conn->prepare(
-        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `membership`, `last_visit_date`, `total_visit_count`, `total_spending`, `create_at`, `membership_activated_at`, `delete_at`,
+        "SELECT `id`, `member_id`, `member_no`, `name`, `phone`, `membership`, `last_visit_date`, `total_visit_count`, `total_spending`, `create_at`, `membership_activated_at`, `milestone_level`, `bonus_expiry`, `delete_at`,
          CASE WHEN `membership` = 'Yes' AND `membership_activated_at` IS NOT NULL AND DATE_ADD(`membership_activated_at`, INTERVAL 1 YEAR) < NOW() THEN 'expired' ELSE '' END as is_expired
          FROM `member`
          WHERE `delete_at` = 0

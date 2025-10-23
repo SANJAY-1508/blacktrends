@@ -102,7 +102,7 @@ elseif ($action === 'updatestaff' && isset($obj->edit_staff_id)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Required fields missing"]]);
         exit;
     }
-    if ( !preg_match('/^\d{10}$/', $phone)) {
+    if (!preg_match('/^\d{10}$/', $phone)) {
         echo json_encode(["head" => ["code" => 400, "msg" => "Invalid data"]]);
         exit;
     }

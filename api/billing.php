@@ -11,14 +11,47 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
     exit();
 }
 
-$json    = file_get_contents('php://input');
-$obj     = json_decode($json);
 $output  = [];
 
 date_default_timezone_set('Asia/Calcutta');
 $timestamp = date('Y-m-d H:i:s');
 
-$action = $obj->action ?? 'listBilling';
+
+if (!empty($_FILES)) {
+    $action = $_POST['action'] ?? 'listBilling';
+} else {
+    $json    = file_get_contents('php://input');
+    $obj     = json_decode($json);
+    $action = $obj->action ?? 'listBilling';
+}
+
+// -------- NEW: 7. UPLOAD PDF --------------------
+if ($action === 'uploadPdf') {
+    if (!isset($_FILES['pdf_file']) || $_FILES['pdf_file']['error'] !== UPLOAD_ERR_OK) {
+        echo json_encode(["head" => ["code" => 400, "msg" => "PDF file upload failed or missing"]]);
+        exit;
+    }
+
+    $uploadDir = '../uploads/pdfs/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+
+    $fileName = 'invoice_' . uniqid() . '_' . time() . '.pdf';
+    $uploadPath = $uploadDir . $fileName;
+
+    if (move_uploaded_file($_FILES['pdf_file']['tmp_name'], $uploadPath)) {
+        $pdfUrl = 'https://blacktrends.zentexus.in/uploads/pdfs/' . $fileName;
+        $output = [
+            "head" => ["code" => 200, "msg" => "PDF uploaded successfully"],
+            "body" => ["pdf_url" => $pdfUrl]
+        ];
+    } else {
+        $output = ["head" => ["code" => 400, "msg" => "Failed to save PDF"]];
+    }
+    echo json_encode($output, JSON_NUMERIC_CHECK);
+    exit;
+}
 
 // -------- 1. LIST ---------------------
 if ($action === 'listBilling') {

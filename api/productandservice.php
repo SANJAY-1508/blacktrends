@@ -29,7 +29,7 @@ if ($action === 'listProductAndService') {
          FROM `productandservice`
          WHERE `delete_at` = 0
            AND (`productandservice_name` LIKE ? OR `serial_number` LIKE ?)
-         ORDER BY `id` DESC"
+         ORDER BY `id` ASC"
     );
     $search_text = '%' . $search_text . '%';
     $stmt->bind_param("ss", $search_text, $search_text);

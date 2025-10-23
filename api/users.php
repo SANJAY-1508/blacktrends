@@ -59,61 +59,59 @@ elseif ($action === 'addusers' && isset($obj->Name) && isset($obj->Mobile_Number
     $Name = $obj->Name;
     $Mobile_Number = $obj->Mobile_Number;
     $Password = $obj->Password;
-  
+
 
     // Validate Required Fields
     if (!empty($Name) && !empty($Mobile_Number) && !empty($Password)) {
-       
-            // Validate Mobile Number (Numeric and exactly 10 digits)
-            if (is_numeric($Mobile_Number) && strlen($Mobile_Number) == 10) {
-                // Prepare statement to check if Mobile Number already exists
-                $stmt = $conn->prepare("SELECT * FROM `users` WHERE `Mobile_Number` = ? AND deleted_at = 0");
-                $stmt->bind_param("s", $Mobile_Number);
-                $stmt->execute();
-                $mobileCheck = $stmt->get_result();
 
-                if ($mobileCheck->num_rows == 0) {
-                    // Prepare statement to insert the new user
-                    $stmtInsert = $conn->prepare("INSERT INTO `users` (`Name`, `Mobile_Number`, `Password`, `created_at_datetime`, `deleted_at`) 
+        // Validate Mobile Number (Numeric and exactly 10 digits)
+        if (is_numeric($Mobile_Number) && strlen($Mobile_Number) == 10) {
+            // Prepare statement to check if Mobile Number already exists
+            $stmt = $conn->prepare("SELECT * FROM `users` WHERE `Mobile_Number` = ? AND deleted_at = 0");
+            $stmt->bind_param("s", $Mobile_Number);
+            $stmt->execute();
+            $mobileCheck = $stmt->get_result();
+
+            if ($mobileCheck->num_rows == 0) {
+                // Prepare statement to insert the new user
+                $stmtInsert = $conn->prepare("INSERT INTO `users` (`Name`, `Mobile_Number`, `Password`, `created_at_datetime`, `deleted_at`) 
                                                   VALUES (?, ?, ?,NOW(), 0)");
-                    $stmtInsert->bind_param("sss", $Name, $Mobile_Number, $Password);
+                $stmtInsert->bind_param("sss", $Name, $Mobile_Number, $Password);
 
-                    if ($stmtInsert->execute()) {
-                        $insertId = $stmtInsert->insert_id;
+                if ($stmtInsert->execute()) {
+                    $insertId = $stmtInsert->insert_id;
 
-                        // Generate unique user ID using the insert ID
-                        $user_id = uniqueID("user", $insertId); // Assuming uniqueID function is available
+                    // Generate unique user ID using the insert ID
+                    $user_id = uniqueID("user", $insertId); // Assuming uniqueID function is available
 
-                        // Prepare statement to update the user ID
-                        $stmtUpdate = $conn->prepare("UPDATE `users` SET `user_id` = ? WHERE `id` = ?");
-                        $stmtUpdate->bind_param("si", $user_id, $insertId);
+                    // Prepare statement to update the user ID
+                    $stmtUpdate = $conn->prepare("UPDATE `users` SET `user_id` = ? WHERE `id` = ?");
+                    $stmtUpdate->bind_param("si", $user_id, $insertId);
 
-                        if ($stmtUpdate->execute()) {
-                            $stmt = $conn->prepare("SELECT * FROM `users` WHERE `deleted_at` = 0 AND id = $insertId  ORDER BY `id` DESC");
-                            $stmt->execute();
-                            $result = $stmt->get_result();
-                        
-                            if ($result->num_rows > 0) {
-                                $users = $result->fetch_all(MYSQLI_ASSOC);
-                                
-                            }
-                            $output = ["head" => ["code" => 200, "msg" => "User Created Successfully", "users" => $users]];
-                        } else {
-                            $output = ["head" => ["code" => 400, "msg" => "Failed to Update User ID"]];
+                    if ($stmtUpdate->execute()) {
+                        $stmt = $conn->prepare("SELECT * FROM `users` WHERE `deleted_at` = 0 AND id = $insertId  ORDER BY `id` DESC");
+                        $stmt->execute();
+                        $result = $stmt->get_result();
+
+                        if ($result->num_rows > 0) {
+                            $users = $result->fetch_all(MYSQLI_ASSOC);
                         }
-                        $stmtUpdate->close();
+                        $output = ["head" => ["code" => 200, "msg" => "User Created Successfully", "users" => $users]];
                     } else {
-                        $output = ["head" => ["code" => 400, "msg" => "Failed to Create User. Error: " . $stmtInsert->error]];
+                        $output = ["head" => ["code" => 400, "msg" => "Failed to Update User ID"]];
                     }
-                    $stmtInsert->close();
+                    $stmtUpdate->close();
                 } else {
-                    $output = ["head" => ["code" => 400, "msg" => "Mobile Number Already Exists"]];
+                    $output = ["head" => ["code" => 400, "msg" => "Failed to Create User. Error: " . $stmtInsert->error]];
                 }
-                $stmt->close();
+                $stmtInsert->close();
             } else {
-                $output = ["head" => ["code" => 400, "msg" => "Invalid Mobile Number"]];
+                $output = ["head" => ["code" => 400, "msg" => "Mobile Number Already Exists"]];
             }
-       
+            $stmt->close();
+        } else {
+            $output = ["head" => ["code" => 400, "msg" => "Invalid Mobile Number"]];
+        }
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
@@ -133,37 +131,36 @@ elseif ($action === 'updateuser' && isset($obj->user_id) && isset($obj->Name) &&
     $Name = $obj->Name;
     $Mobile_Number = $obj->Mobile_Number;
     $Password = $obj->Password;
-    
+
 
     // Validate Required Fields
     if (!empty($Name) && !empty($Mobile_Number) && !empty($Password)) {
-     
-            // Validate Mobile Number (Numeric and exactly 10 digits)
-            if (is_numeric($Mobile_Number) && strlen($Mobile_Number) == 10) {
-                // Update User
-                $updateUser = "UPDATE `users` SET 
+
+        // Validate Mobile Number (Numeric and exactly 10 digits)
+        if (is_numeric($Mobile_Number) && strlen($Mobile_Number) == 10) {
+            // Update User
+            $updateUser = "UPDATE `users` SET 
                                `Name` = '$Name', 
                                `Mobile_Number` = '$Mobile_Number', 
                                `Password` = '$Password'
                                WHERE `id` = '$user_id'";
 
-                if ($conn->query($updateUser)) {
-                    $output = ["head" => ["code" => 200, "msg" => "User Details Updated Successfully","id" => $user_id]];
-                } else {
-                    // Log the SQL error and return it
-                    error_log("SQL Error: " . $conn->error);
-                    $output = ["head" => ["code" => 400, "msg" => "Failed to Update User. Error: " . $conn->error]];
-                }
+            if ($conn->query($updateUser)) {
+                $output = ["head" => ["code" => 200, "msg" => "User Details Updated Successfully", "id" => $user_id]];
             } else {
-                $output = ["head" => ["code" => 400, "msg" => "Invalid Mobile Number"]];
+                // Log the SQL error and return it
+                error_log("SQL Error: " . $conn->error);
+                $output = ["head" => ["code" => 400, "msg" => "Failed to Update User. Error: " . $conn->error]];
             }
-      
+        } else {
+            $output = ["head" => ["code" => 400, "msg" => "Invalid Mobile Number"]];
+        }
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
 
     // Return the JSON response
- echo json_encode($output);
+    echo json_encode($output);
     exit;
 }
 
@@ -194,7 +191,7 @@ elseif ($action === "deleteUsers") {
             "msg" => "Please provide all required details"
         ]];
     }
-}elseif ($action === "login") {
+} elseif ($action === "login") {
     // Extract login details from request
     $Mobile_Number = $obj->Mobile_Number ?? '';
     $Password = $obj->Password ?? '';
@@ -253,7 +250,7 @@ elseif ($action === "deleteUsers") {
 
     echo json_encode($output);
     exit;
-}else {
+} else {
     $output = [
         "head" => ["code" => 400, "msg" => "Invalid Parameters"],
         "inputs" => $obj
