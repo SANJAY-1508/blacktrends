@@ -44,42 +44,41 @@ if ($action === 'listCompany') {
     $gst_no = $obj->gst_no ?? '';
 
     if (!empty($company_name) && !empty($contact_number)) {
-        
-            if (is_numeric($contact_number) && strlen($contact_number) == 10) {
-                $stmt = $conn->prepare("SELECT * FROM `company` WHERE `contact_number` = ? AND `delete_at` = 0");
-                $stmt->bind_param("s", $contact_number);
-                $stmt->execute();
-                if ($stmt->get_result()->num_rows == 0) {
-                    if (!empty($gst_no)) {
-                        $gstStmt = $conn->prepare("SELECT * FROM `company` WHERE `gst_no` = ? AND `delete_at` = 0");
-                        $gstStmt->bind_param("s", $gst_no);
-                        $gstStmt->execute();
-                        if ($gstStmt->get_result()->num_rows > 0) {
-                            $output = ["head" => ["code" => 400, "msg" => "GST No Already Exists"]];
-                            echo json_encode($output);
-                            exit;
-                        }
-                    }
 
-                    $stmtInsert = $conn->prepare("INSERT INTO `company` (`company_name`, `contact_number`, `email`, `address`, `gst_no`, `create_at`, `delete_at`) VALUES (?, ?, ?, ?, ?, NOW(), 0)");
-                    $stmtInsert->bind_param("ssssss", $company_name, $contact_number, $email, $address, $gst_no);
-                    if ($stmtInsert->execute()) {
-                        $insertId = $stmtInsert->insert_id;
-                        $company_id = uniqueID("company", $insertId);  // Assuming uniqueID function
-                        $stmtUpdate = $conn->prepare("UPDATE `company` SET `company_id` = ? WHERE `id` = ?");
-                        $stmtUpdate->bind_param("si", $company_id, $insertId);
-                        $stmtUpdate->execute();
-                        $output = ["head" => ["code" => 200, "msg" => "Company Created Successfully"]];
-                    } else {
-                        $output = ["head" => ["code" => 400, "msg" => "Failed to Create Company: " . $stmtInsert->error]];
+        if (is_numeric($contact_number) && strlen($contact_number) == 10) {
+            $stmt = $conn->prepare("SELECT * FROM `company` WHERE `contact_number` = ? AND `delete_at` = 0");
+            $stmt->bind_param("s", $contact_number);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows == 0) {
+                if (!empty($gst_no)) {
+                    $gstStmt = $conn->prepare("SELECT * FROM `company` WHERE `gst_no` = ? AND `delete_at` = 0");
+                    $gstStmt->bind_param("s", $gst_no);
+                    $gstStmt->execute();
+                    if ($gstStmt->get_result()->num_rows > 0) {
+                        $output = ["head" => ["code" => 400, "msg" => "GST No Already Exists"]];
+                        echo json_encode($output);
+                        exit;
                     }
+                }
+
+                $stmtInsert = $conn->prepare("INSERT INTO `company` (`company_name`, `contact_number`, `email`, `address`, `gst_no`, `create_at`, `delete_at`) VALUES (?, ?, ?, ?, ?, NOW(), 0)");
+                $stmtInsert->bind_param("ssssss", $company_name, $contact_number, $email, $address, $gst_no);
+                if ($stmtInsert->execute()) {
+                    $insertId = $stmtInsert->insert_id;
+                    $company_id = uniqueID("company", $insertId);  // Assuming uniqueID function
+                    $stmtUpdate = $conn->prepare("UPDATE `company` SET `company_id` = ? WHERE `id` = ?");
+                    $stmtUpdate->bind_param("si", $company_id, $insertId);
+                    $stmtUpdate->execute();
+                    $output = ["head" => ["code" => 200, "msg" => "Company Created Successfully"]];
                 } else {
-                    $output = ["head" => ["code" => 400, "msg" => "Contact Number Already Exists"]];
+                    $output = ["head" => ["code" => 400, "msg" => "Failed to Create Company: " . $stmtInsert->error]];
                 }
             } else {
-                $output = ["head" => ["code" => 400, "msg" => "Invalid Contact Number"]];
+                $output = ["head" => ["code" => 400, "msg" => "Contact Number Already Exists"]];
             }
-       
+        } else {
+            $output = ["head" => ["code" => 400, "msg" => "Invalid Contact Number"]];
+        }
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Required fields missing"]];
     }

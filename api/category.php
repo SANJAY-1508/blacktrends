@@ -59,51 +59,50 @@ elseif ($action === 'addCategory' && isset($obj->category_name)) {
 
     // Validate Required Fields
     if (!empty($category_name)) {
-            // Prepare statement to check if category_name already exists
-            $stmt = $conn->prepare("SELECT * FROM `category` WHERE `category_name` = ? AND delete_at = 0");
-            $stmt->bind_param("s", $category_name);
-            $stmt->execute();
-            $nameCheck = $stmt->get_result();
+        // Prepare statement to check if category_name already exists
+        $stmt = $conn->prepare("SELECT * FROM `category` WHERE `category_name` = ? AND delete_at = 0");
+        $stmt->bind_param("s", $category_name);
+        $stmt->execute();
+        $nameCheck = $stmt->get_result();
 
-            if ($nameCheck->num_rows == 0) {
-                // Prepare statement to insert the new category
-                $stmtInsert = $conn->prepare("INSERT INTO `category` (`category_name`, `create_at`, `delete_at`) 
+        if ($nameCheck->num_rows == 0) {
+            // Prepare statement to insert the new category
+            $stmtInsert = $conn->prepare("INSERT INTO `category` (`category_name`, `create_at`, `delete_at`) 
                                               VALUES (?, NOW(), 0)");
-                $stmtInsert->bind_param("s", $category_name);
+            $stmtInsert->bind_param("s", $category_name);
 
-                if ($stmtInsert->execute()) {
-                    $insertId = $stmtInsert->insert_id;
+            if ($stmtInsert->execute()) {
+                $insertId = $stmtInsert->insert_id;
 
-                    // Generate unique category ID using the insert ID
-                    $category_id = uniqueID("category", $insertId); // Assuming uniqueID function is available
+                // Generate unique category ID using the insert ID
+                $category_id = uniqueID("category", $insertId); // Assuming uniqueID function is available
 
-                    // Prepare statement to update the category ID
-                    $stmtUpdate = $conn->prepare("UPDATE `category` SET `category_id` = ? WHERE `id` = ?");
-                    $stmtUpdate->bind_param("si", $category_id, $insertId);
+                // Prepare statement to update the category ID
+                $stmtUpdate = $conn->prepare("UPDATE `category` SET `category_id` = ? WHERE `id` = ?");
+                $stmtUpdate->bind_param("si", $category_id, $insertId);
 
-                    if ($stmtUpdate->execute()) {
-                        $stmt = $conn->prepare("SELECT * FROM `category` WHERE `delete_at` = 0 AND id = ? ORDER BY `id` DESC");
-                        $stmt->bind_param("i", $insertId);
-                        $stmt->execute();
-                        $result = $stmt->get_result();
-                    
-                        if ($result->num_rows > 0) {
-                            $categories = $result->fetch_all(MYSQLI_ASSOC);
-                        }
-                        $output = ["head" => ["code" => 200, "msg" => "Category Created Successfully", "categories" => $categories ?? []]];
-                    } else {
-                        $output = ["head" => ["code" => 400, "msg" => "Failed to Update Category ID"]];
+                if ($stmtUpdate->execute()) {
+                    $stmt = $conn->prepare("SELECT * FROM `category` WHERE `delete_at` = 0 AND id = ? ORDER BY `id` DESC");
+                    $stmt->bind_param("i", $insertId);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+
+                    if ($result->num_rows > 0) {
+                        $categories = $result->fetch_all(MYSQLI_ASSOC);
                     }
-                    $stmtUpdate->close();
+                    $output = ["head" => ["code" => 200, "msg" => "Category Created Successfully", "categories" => $categories ?? []]];
                 } else {
-                    $output = ["head" => ["code" => 400, "msg" => "Failed to Create Category. Error: " . $stmtInsert->error]];
+                    $output = ["head" => ["code" => 400, "msg" => "Failed to Update Category ID"]];
                 }
-                $stmtInsert->close();
+                $stmtUpdate->close();
             } else {
-                $output = ["head" => ["code" => 400, "msg" => "Category Name Already Exists"]];
+                $output = ["head" => ["code" => 400, "msg" => "Failed to Create Category. Error: " . $stmtInsert->error]];
             }
-            $stmt->close();
-       
+            $stmtInsert->close();
+        } else {
+            $output = ["head" => ["code" => 400, "msg" => "Category Name Already Exists"]];
+        }
+        $stmt->close();
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
@@ -121,19 +120,18 @@ elseif ($action === 'updateCategory' && isset($obj->category_id) && isset($obj->
 
     // Validate Required Fields
     if (!empty($category_name)) {
-          // Update Category using prepared statement
-            $stmt = $conn->prepare("UPDATE `category` SET `category_name` = ? WHERE `id` = ? AND `delete_at` = 0");
-            $stmt->bind_param("si", $category_name, $category_id);
+        // Update Category using prepared statement
+        $stmt = $conn->prepare("UPDATE `category` SET `category_name` = ? WHERE `id` = ? AND `delete_at` = 0");
+        $stmt->bind_param("si", $category_name, $category_id);
 
-            if ($stmt->execute()) {
-                $output = ["head" => ["code" => 200, "msg" => "Category Details Updated Successfully","id" => $category_id]];
-            } else {
-                // Log the SQL error and return it
-                error_log("SQL Error: " . $stmt->error);
-                $output = ["head" => ["code" => 400, "msg" => "Failed to Update Category. Error: " . $stmt->error]];
-            }
-            $stmt->close();
-       
+        if ($stmt->execute()) {
+            $output = ["head" => ["code" => 200, "msg" => "Category Details Updated Successfully", "id" => $category_id]];
+        } else {
+            // Log the SQL error and return it
+            error_log("SQL Error: " . $stmt->error);
+            $output = ["head" => ["code" => 400, "msg" => "Failed to Update Category. Error: " . $stmt->error]];
+        }
+        $stmt->close();
     } else {
         $output = ["head" => ["code" => 400, "msg" => "Please provide all required details"]];
     }
