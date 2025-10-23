@@ -53,6 +53,32 @@ if ($action === 'uploadPdf') {
     exit;
 }
 
+// -------- NEW: 8. GET MILESTONE DISCOUNT --------------------
+elseif ($action === 'getMilestoneDiscount' && isset($obj->member_id)) {
+    $member_id_str = $obj->member_id;
+    $extra_rate = 0;
+
+    if (empty($member_id_str)) {
+        $output = ["head" => ["code" => 200, "msg" => "No member"], "body" => ["extra_discount_rate" => 0]];
+        echo json_encode($output, JSON_NUMERIC_CHECK);
+        exit;
+    }
+
+    // Fetch milestone
+    $stmt = $conn->prepare("SELECT discount_rate FROM member_discount_milestone WHERE member_id = ? AND is_active = 1 AND discount_expiry_date > NOW()");
+    $stmt->bind_param("s", $member_id_str);
+    $stmt->execute();
+    $milestone = $stmt->get_result()->fetch_assoc();
+
+    if ($milestone) {
+        $extra_rate = floatval($milestone['discount_rate']);
+    }
+
+    $output = ["head" => ["code" => 200, "msg" => "Success"], "body" => ["extra_discount_rate" => $extra_rate]];
+    echo json_encode($output, JSON_NUMERIC_CHECK);
+    exit;
+}
+
 // -------- 1. LIST ---------------------
 if ($action === 'listBilling') {
     $search_text = $obj->search_text ?? '';
@@ -141,7 +167,10 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
 
     // productandservice_details should be stored as JSON string in DB
     $details_json = is_string($productandservice_details) ? $productandservice_details : json_encode($productandservice_details);
+    $product_details_array = json_decode($details_json, true) ?? [];
 
+    $extra_rate = 0;
+    applyMilestoneDiscount($conn, $member_id_str, $product_details_array, $extra_rate, $membership, $timestamp);
 
     $stmtIns = $conn->prepare(
         "INSERT INTO billing (billing_date, member_id, member_no, name, phone, productandservice_details, 
@@ -177,7 +206,6 @@ elseif ($action === 'addBilling' && isset($obj->member_no) && isset($obj->name) 
         $upd = $conn->prepare("UPDATE billing SET billing_id = ? WHERE id = ?");
         $upd->bind_param("si", $billing_id, $insertId);
         $upd->execute();
-
 
         updateStaffTotals($conn, $details_json, 'add');
         updateMemberTotals($conn, $member_id_str);
@@ -221,7 +249,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     }
 
     // Fetch existing billing by billing_id (string)
-    $existingStmt = $conn->prepare("SELECT id, member_id, member_no, productandservice_details FROM billing WHERE billing_id = ? AND delete_at = 0 LIMIT 1");
+    $existingStmt = $conn->prepare("SELECT id, member_id, member_no, productandservice_details, total FROM billing WHERE billing_id = ? AND delete_at = 0 LIMIT 1");
     $existingStmt->bind_param("s", $edit_billing_id);
     $existingStmt->execute();
     $existingRow = $existingStmt->get_result()->fetch_assoc();
@@ -232,7 +260,7 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     $existing_member_id_str = $existingRow['member_id'];
     $existing_member_no = $existingRow['member_no'];
     $old_details = $existingRow['productandservice_details'];
-
+    $old_total = floatval($existingRow['total']);
 
     // Determine new member_id_str (string) based on provided member_no
     $member_id_str = $existing_member_id_str;
@@ -253,6 +281,31 @@ elseif ($action === 'updateBilling' && isset($obj->edit_billing_id)) {
     updateStaffTotals($conn, $old_details, 'subtract');
 
     $details_json = is_string($productandservice_details) ? $productandservice_details : json_encode($productandservice_details);
+    $product_details_array = json_decode($details_json, true) ?? [];
+    $new_total = floatval($total);  // From payload
+
+    // For update: Subtract old total from milestone (if applicable), then apply new
+    if ($member_id_str === $existing_member_id_str) {
+        // Same member: subtract old total first if no active discount
+        $subtract_old = true;
+        $stmt_check = $conn->prepare("SELECT is_active, discount_expiry_date FROM member_discount_milestone WHERE member_id = ?");
+        $stmt_check->bind_param("s", $member_id_str);
+        $stmt_check->execute();
+        $mil = $stmt_check->get_result()->fetch_assoc();
+        if ($mil && $mil['is_active'] && $mil['discount_expiry_date'] > $timestamp) {
+            $subtract_old = false;  // Don't subtract during active
+        }
+        if ($subtract_old) {
+            // Subtract old total from milestone_total
+            $stmt_sub = $conn->prepare("UPDATE member_discount_milestone SET milestone_total = GREATEST(milestone_total - ?, 0) WHERE member_id = ?");
+            $stmt_sub->bind_param("ds", $old_total, $member_id_str);
+            $stmt_sub->execute();
+        }
+    }
+
+    // Now apply new discount logic with new total
+    $extra_rate = 0;
+    applyMilestoneDiscount($conn, $member_id_str, $product_details_array, $extra_rate, $membership, $timestamp, $new_total);
 
     $upd = $conn->prepare(
         "UPDATE billing SET billing_date = ?, member_id = ?, member_no = ?, name = ?, phone = ?, 
@@ -303,7 +356,7 @@ elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
     $delete_by_id = $obj->delete_by_id ?? null;
 
     // Fetch billing row by numeric id to get member_id (string) and details
-    $fetchStmt = $conn->prepare("SELECT member_id, productandservice_details FROM billing WHERE id = ? AND delete_at = 0 LIMIT 1");
+    $fetchStmt = $conn->prepare("SELECT member_id, productandservice_details, total FROM billing WHERE id = ? AND delete_at = 0 LIMIT 1");
     $fetchStmt->bind_param("i", $delete_billing_id);
     $fetchStmt->execute();
     $fetchRow = $fetchStmt->get_result()->fetch_assoc();
@@ -313,9 +366,25 @@ elseif ($action === 'deleteBilling' && isset($obj->delete_billing_id)) {
     }
     $member_id_str = $fetchRow['member_id'];
     $old_details = $fetchRow['productandservice_details'];
+    $old_total = floatval($fetchRow['total']);
 
     // Subtract staff totals
     updateStaffTotals($conn, $old_details, 'subtract');
+
+    // Subtract from milestone if applicable
+    $subtract_old = true;
+    $stmt_check = $conn->prepare("SELECT is_active, discount_expiry_date FROM member_discount_milestone WHERE member_id = ?");
+    $stmt_check->bind_param("s", $member_id_str);
+    $stmt_check->execute();
+    $mil = $stmt_check->get_result()->fetch_assoc();
+    if ($mil && $mil['is_active'] && $mil['discount_expiry_date'] > $timestamp) {
+        $subtract_old = false;
+    }
+    if ($subtract_old && !empty($member_id_str)) {
+        $stmt_sub = $conn->prepare("UPDATE member_discount_milestone SET milestone_total = GREATEST(milestone_total - ?, 0) WHERE member_id = ?");
+        $stmt_sub->bind_param("ds", $old_total, $member_id_str);
+        $stmt_sub->execute();
+    }
 
     // Soft delete
     $stmt = $conn->prepare("UPDATE billing SET delete_at = 1, delete_by_id = ? WHERE id = ?");
